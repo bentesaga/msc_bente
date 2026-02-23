@@ -1,0 +1,717 @@
+---
+title: "Data cleaning OSF"
+author: "Bente Sagabraaten"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Data cleaning OSF
+
+### Loading library
+
+```{r}
+#| label: loading library
+#| message: false 
+
+# loading all packages I think will be useful
+
+library(readxl) # to import excel file
+library(tidyverse) # contains dplyr(), stringr() so no need to download separately
+library(janitor) # good for clean_names() etc. 
+library(lubridate) # to fix dates
+
+```
+
+### Importing raw data
+
+```{r}
+#| label: importing raw data 
+#| message: false 
+
+# importing my 13-02-2026 copy of google spreadsheet with raw data and choosing the right sheet 
+# NAs are actually imported as NAs, not as characters 
+
+raw_data <- read_excel(
+  "data/13-02-2026_copy_raw_data.xlsx", 
+  sheet = "cv_nov25_jan26", na = c("", "NA")) 
+
+```
+
+### Clean names
+
+```{r}
+#| label: cleaning names 
+#| message: false
+
+# cleaning all column names to fit the snake_case standard and to fit the naming conventions to be used for all DURIN data. 
+# using slice() to remove the first row of example data (not real data)
+
+clean_names_data <- raw_data |> 
+  clean_names() |> 
+  rename(site_name = site_id) |> 
+  
+  slice(-1)
+ 
+view(clean_names_data)
+
+```
+
+### Variable types
+
+```{r}
+#| label: variable types 
+#| message: false 
+
+# checking and changing variable types 
+# using mutate as many columns need changing 
+
+glimpse(clean_names_data)
+
+#changing classes of all variables that should be in class factor
+variable_data <- clean_names_data |> 
+  mutate(across(c(site_name, species, proj_2025, project, age_class, plant_nr, leaf_age, sample, paired_with, calluna_shoot_type, temp_exp, temp_exp_time, temp_exp_time_unit, fv_fm_hr, scanned), as.factor))
+
+
+#changing classes of variables that should be in class dbl/numeric
+variable_data2 <- variable_data |>
+    mutate(across(c(fv_fm_initial, fv_fm_final, wet_mass_g, leaf_thickness_1_mm, leaf_thickness_2_mm, leaf_thickness_3_mm, dry_mass_g, height_s_flower, height_s_top), as.numeric))
+
+#changing classes of all variables that should be in class integers
+data <- variable_data2 |>
+    mutate(across(c(bulk_nr_leaves, leaf_nr), as.integer))
+
+glimpse(data) #checking variable classes
+
+#changing the levels of age_class, so that they are sorted from youngest to oldest. Might be useful for tables etc.
+
+data$age_class <- factor((data$age_class),
+                         levels = c("Newly Burnt", "Pioneer", 
+                                    "Building", "Mature"))
+
+levels(data$age_class) #checking that levels were changed successfully 
+
+#should these be moved "one up" so from pio to degenerative?
+```
+
+### Fixing date and time
+
+```{r}
+#| label: date and time 
+#| message: false 
+
+# converting day, month, year column into one column on the format yyyy_mm_dd according to standards for DURIN data
+# removing the now unneccessary columns 
+
+data <- data |> 
+  mutate(date  = ymd_hm(paste(year, month, day, format(coll_time, format = "%H:%M"))), .after = 1)  |> 
+  select(-c(day, month, year, coll_time)) 
+
+
+view(data) #checking that the right changes were made 
+
+```
+
+### Cross-checking and data validation
+
+Want to check the following quality control rules:
+
+|  |
+|------------------------------------------------------------------------|
+| Hot leaves must have leaf numbers between 1-9 |
+| Cold leaves must have leaf numbers between 10-15 |
+| Trait leaves must have leaf numbers between 16-20 |
+| Hot leaves must have a proj_2025 of TT_Hot |
+| Cold leaves must have a proj_2025 of TT_Cold |
+| Trait leaves must have a proj_2025 of Traits |
+| Hot leaves cannot have a barcode ID |
+| Cold leaves cannot have a barcode ID |
+| All trait leaves must have a barcode ID |
+| Leaf 1 must have temperature value of 20 degrees |
+| Leaf 2 must have temperature value of 38 degrees |
+| Leaf 3 must have temperature value of 42 degrees |
+| Leaf 4 must have temperature value of 44 degrees |
+| Leaf 5 must have temperature value of 46 degrees |
+| Leaf 6 must have temperature value of 48 degrees |
+| Leaf 7 must have temperature value of 50 degrees |
+| Leaf 8 must have temperature value of 52 degrees |
+| Leaf 9 must have a temperature value of 56 degrees |
+| Leaf 10 must have temperature value of 5 degrees |
+| Leaf 11 must have temperature value of 0 degrees |
+| Leaf 12 must have temperature value of -5 degrees |
+| Leaf 13 must have temperature value of -10 degrees |
+| Leaf 14 must have a temperature value of -15 degrees |
+| Leaf 15 must have a temperature value of -20 degrees |
+| All hot leaves must have a temperature exposure time of 20 minutes |
+| All cold leaves must have a temperature exposure time of 8 hours |
+| All hot and cold leaves should have final Fv/Fm period of 24 hours |
+| All Calluna should have 'Bulk' as their sample type |
+| All Calluna with bulked leaf samples should have a bulk leaf number provided |
+| Dry mass should not exceed wet mass\*\*\* |
+| Heights should not fall below 0 |
+| Height(s)\_flower must be smaller than Height(s)\_top. |
+| Fv/Fm values should be between 0.00 and 0.85 |
+| Fv/Fm values should only have a maximum of two decimal places |
+| Leaf thickness values should have three decimal places |
+| Dry mass values should have five decimal places |
+| Wet mass values should have five decimal places\*\*\* |
+| Plants 1-4 should have collection date Nov 11 or Jan 14 |
+| Plants 5-8 should have collection date Nov 13 or Jan 16 |
+| Hot and cold leaves must have non NA entries for fv/fm columns\*\*\* |
+| Trait leaves must have non NA entries for thickness and weight (enough w 1 thickness?) |
+
+### Helper function for decimal rules
+
+```{r}
+#| label: decimal helper function
+#| message: false 
+
+# checking if numeric values have exactly n decimal places
+
+has_n_decimals <- function(x, n) {
+  ifelse(
+    is.na(x),
+    TRUE,  # allow NA (handled by separate required-value rules)
+    abs(x - round(x, n)) < .Machine$double.eps^0.5
+  )
+}
+```
+
+### Quality control - new version
+
+```{r}
+#| label: quality control rules new 
+#| message: false 
+
+library(purrr)
+
+# function to find rows where leaf_id does NOT match the temp_exp
+test_leaf_temp <- function(leaf_nr, w) {
+
+  n <- data |> 
+    filter(leaf_nr == {{leaf_nr}}, temp_exp != {{w}}) |> 
+    nrow()
+  n == 0
+}
+
+leaf <- c(1:15)
+
+temp <- c(20, 38, 42, 44, 46, 48, 50, 52, 56, 5, 0, -5, -10, -15, -20)
+
+test1 <- map2_lgl(leaf, temp, test_leaf_temp)
+test1
+stopifnot(all(test1))
+
+# does not stop, is fine! only need to do the mapping here bc of the vector/list. 
+
+#MAKE SIMILAR FUNCTIONS FOR ALL OTHER RULES 
+
+# find rows where range of leaf number does not match proj_2025
+test_hot_leaf_range <- function() {
+  n <- data |>
+    filter(proj_2025 == "TT Hot" &
+           !between(leaf_nr, 1, 9)) |>
+    nrow()
+  n == 0
+}
+
+test_cold_leaf_range <- function() {
+  n <- data |>
+    filter(proj_2025 == "TT Cold" &
+           !between(leaf_nr, 10, 15)) |>
+    nrow()
+  n == 0
+}
+
+test_trait_leaf_range <- function() {
+  n <- data |>
+    filter(proj_2025 == "Traits" &
+           !between(leaf_nr, 16, 20)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_hot_leaf_range())
+stopifnot(test_cold_leaf_range())
+stopifnot(test_trait_leaf_range())
+
+# functions to find where envelope barcodes are not matching proj_2025
+test_envelope_hot <- function() {
+  n <- data |>
+    filter(proj_2025 == "TT Hot" &
+           !is.na(envelope_id)) |>
+    nrow()
+  n == 0
+}
+
+test_envelope_cold <- function() {
+  n <- data |>
+    filter(proj_2025 == "TT Cold" &
+           !is.na(envelope_id)) |>
+    nrow()
+  n == 0
+}
+
+test_envelope_traits <- function() {
+  n <- data |>
+    filter(proj_2025 == "Traits" &
+           is.na(envelope_id)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_envelope_hot())
+stopifnot(test_envelope_cold())
+stopifnot(test_envelope_traits())
+
+
+# function to find rows where exposure time does not match 
+test_time_hot <- function() {
+  n <- data |>
+    filter(proj_2025 == "TT Hot" &
+           (temp_exp_time != 20 | temp_exp_time_unit != "minutes")) |>
+    nrow()
+  n == 0
+}
+
+test_time_cold <- function() {
+  n <- data |>
+    filter(proj_2025 == "TT Cold" &
+           (temp_exp_time != 8 | temp_exp_time_unit != "hours")) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_time_hot())
+stopifnot(test_time_cold())
+
+# find rows where fvfm time does not match 
+# find rows where proj_2025 is TT hot or TT cold but fv_fm_hr is NOT 24
+test_fv_fm_period <- function() {
+  n <- data |>
+    filter(proj_2025 %in% c("TT Hot","TT Cold") &
+           fv_fm_hr != 24) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_fvfm_period())
+
+
+# find rows where species/sample/bulk/nr is not matching 
+test_calluna_bulk <- function() {
+  n <- data |>
+    filter(species == "Calluna vulgaris" &
+           sample != "Bulk") |>
+    nrow()
+  n == 0
+}
+
+test_bulk_nr <- function() {
+  n <- data |>
+    filter(sample == "Bulk" &
+           is.na(bulk_nr_leaves)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_calluna_bulk())
+stopifnot(test_bulk_nr())
+
+
+# find rows breaking mass rule, dry mass exceeding wet mass
+test_mass <- function() {
+  n <- data |>
+    filter(dry_mass_g > wet_mass_g) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_mass())
+# NOT TRUE, this means there is at least one row affected 
+
+# find rows breaking height rules, height below 0 or flower height taller than top height  
+test_height_positive <- function() {
+  n <- data |>
+    filter(height_s_flower < 0 |
+           height_s_top < 0) |>
+    nrow()
+  n == 0
+}
+
+test_height_relationship <- function() {
+  n <- data |>
+    filter(height_s_flower > height_s_top) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_height_positive())
+stopifnot(test_height_relationship())
+
+# find rows breaking fvfm rules, initial or final outside 0.00-0.85 range
+
+test_fvfm_range <- function() {
+  n <- data |>
+    filter(proj_2025 %in% c("TT Hot","TT Cold") &
+           (!between(fv_fm_initial,0,0.85) |
+            !between(fv_fm_final,0,0.85))) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_fvfm_range())
+
+
+# find rows breaking decimal rules, 2 for fv/fm, 3 for thickness, 5 for mass
+
+test_fvfm_decimals <- function() {
+  n <- data |>
+    filter(!has_n_decimals(fv_fm_initial,2) |
+           !has_n_decimals(fv_fm_final,2)) |>
+    nrow()
+  n == 0
+}
+
+test_thickness_decimals <- function() {
+  n <- data |>
+    filter(if_any(starts_with("leaf_thickness"),
+                  ~ !has_n_decimals(.,3))) |>
+    nrow()
+  n == 0
+}
+
+
+test_dry_mass_decimals <- function() {
+  n <- data |>
+    filter(!has_n_decimals(dry_mass_g,5)) |>
+    nrow()
+  n == 0
+}
+
+test_wet_mass_decimals <- function() {
+  n <- data |>
+    filter(!has_n_decimals(wet_mass_g,5)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_fvfm_decimals())
+stopifnot(test_thickness_decimals())
+stopifnot(test_dry_mass_decimals())
+stopifnot(test_wet_mass_decimals())
+# test_wet_mass_decimals() is not TRUE, so there is decimal issues in at least one row
+
+# find rows breaking date rules 
+test_date_1_4 <- function() {
+  n <- data |>
+    filter(plant_nr %in% 1:4 &
+           !(as.Date(date) %in% as.Date(c("2025-11-11","2026-01-14")))) |>
+    nrow()
+  n == 0
+}
+
+test_date_5_8 <- function() {
+  n <- data |>
+    filter(plant_nr %in% 5:8 &
+           !(as.Date(date) %in% as.Date(c("2025-11-13","2026-01-16")))) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_date_1_4())
+stopifnot(test_date_5_8())
+
+# find rows with unexpected NAs 
+# find rows where proj_2025 is TT Hot or TT Cold but fv/fm final values are NA
+test_fv_fm_final_not_na <- function() {
+  n <- data |>
+    filter(proj_2025 %in% c("TT Hot","TT Cold") &
+           is.na(fv_fm_final)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_fv_fm_final_not_na())
+#test_fv_fm_final_not NOT TRUE, so there are NAs
+
+# find rows  where pro_2025 is Traits but fm/fv initial 
+test_fv_fm_initial <- function() {
+  n <- data |>
+    filter(proj_2025 == "Traits" &
+           is.na(fv_fm_initial)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_fv_fm_initial())
+
+# identify rows where proj_2025 is Traits but all thickness values are missing
+
+test_thickness <- function() {
+  n <- data |>
+    filter(proj_2025 == "Traits" &
+           if_all(starts_with("leaf_thickness"), is.na)) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_thickness())
+
+
+# identify rows where proj_2025 is Traits but wet or dry mass is missing
+test_mass_traits <- function() {
+  n <- data |>
+    filter(proj_2025 == "Traits" &
+           (is.na(wet_mass_g) | is.na(dry_mass_g))) |>
+    nrow()
+  n == 0
+}
+
+stopifnot(test_mass_traits())
+
+
+#probably better to test all at once. how to få alle radene med feil opp på en enkel måte. 
+#må finne ut hvordan man kan finne de spesifikke problemradene og hva som er best å gjøre med dem. 
+```
+
+### IKKE RUNNE KODEN FRA HER - GAMLE NOTATER
+
+### Removing outliers
+
+-   not really sure what to do here, spesielt siden det bare er til data cleaning. må spørre noen.
+
+-   boxplot? see what is outside? and then remove? for each numeric variable? or all together?
+
+```{r}
+library(purrr)
+
+
+# old
+test_funksjon <- function(z,w) {
+
+invalid_leaf1 <- data |> 
+  filter(leaf_nr == z & temp_exp != w)
+}
+
+leaf <- list(1:15)
+temp <- list(20, 38, 42, 44, 46, 48, 50, 52, 56, 5, 0, -5, -10, -15, -20)
+
+test1 <- map2(leaf, temp, test_funksjon)
+
+test_funksjon(1:15)
+
+# rules included 
+
+# identify rows where leaf_nr is 1 but temp_exp is NOT 20
+invalid_leaf1 <- data |> 
+  filter(leaf_nr == 1 & temp_exp != 20)
+
+ data |> 
+  filter(leaf_nr == 1 & temp_exp != 20) 
+
+# identify rows where leaf_nr is 2 but temp_exp is NOT 38
+invalid_leaf2 <- data |> 
+  filter(leaf_nr == 2 & temp_exp != 38)
+
+# identify rows where leaf_nr is 3 but temp_exp is NOT 42
+invalid_leaf3 <- data |> 
+  filter(leaf_nr == 3 & temp_exp != 42)
+
+# identify rows where leaf_nr is 4 but temp_exp is NOT 44
+invalid_leaf4 <- data |> 
+  filter(leaf_nr == 4 & temp_exp != 44)
+
+# identify rows where leaf_nr is 5 but temp_exp is NOT 46
+invalid_leaf5 <- data |> 
+  filter(leaf_nr == 5 & temp_exp != 46)
+
+# identify rows where leaf_nr is 6 but temp_exp is NOT 48
+invalid_leaf6 <- data |> 
+  filter(leaf_nr == 6 & temp_exp != 48)
+
+# identify rows where leaf_nr is 7 but temp_exp is NOT 50
+invalid_leaf7 <- data |> 
+  filter(leaf_nr == 7 & temp_exp != 50)
+
+# identify rows where leaf_nr is 8 but temp_exp is NOT 52
+invalid_leaf8 <- data |> 
+  filter(leaf_nr == 8 & temp_exp != 52)
+
+# identify rows where leaf_nr is 9 but temp_exp is NOT 56
+invalid_leaf9 <- data |> 
+  filter(leaf_nr == 9 & temp_exp != 56)
+
+# identify rows where leaf_nr is 10 but temp_exp is NOT 5
+invalid_leaf10 <- data |> 
+  filter(leaf_nr == 10 & temp_exp != 5)
+
+# identify rows where leaf_nr is 11 but temp_exp is NOT 0
+invalid_leaf11 <- data |> 
+  filter(leaf_nr == 11 & temp_exp != 0)
+
+# identify rows where leaf_nr is 12 but temp_exp is NOT -5
+invalid_leaf12 <- data |> 
+  filter(leaf_nr == 12 & temp_exp != -5)
+
+# identify rows where leaf_nr is 13 but temp_exp is NOT -10
+invalid_leaf13 <- data |> 
+  filter(leaf_nr == 13 & temp_exp != -10)
+
+# identify rows where leaf_nr is 14 but temp_exp is NOT -15
+invalid_leaf14 <- data |> 
+  filter(leaf_nr == 14 & temp_exp != -15)
+
+# identify rows where leaf_nr is 15 but temp_exp is NOT -20
+invalid_leaf15 <- data |> 
+  filter(leaf_nr == 15 & temp_exp != -20)
+
+
+# new - this works! 
+
+library(purrr)
+
+test_funksjon <- function(leaf_nr, w) {
+
+  n <- data |> 
+    filter(leaf_nr == {{leaf_nr}}, temp_exp != {{w}}) |> 
+    nrow()
+  n == 0
+}
+
+leaf <- c(1:15)
+
+temp <- c(20, 38, 42, 44, 46, 48, 50, 52, 56, 5, 0, -5, -10, -15, -20)
+
+test1 <- map2_lgl(leaf, temp, test_funksjon)
+test1
+stopifnot(all(test1))
+
+
+
+
+
+# find rows where exposure time does not match 
+
+# identify rows where proj_2025 is TT hot but exposure time is NOT 20 minutes
+invalid_time_hot <- data |> 
+  filter(proj_2025 == "TT Hot" &
+         (temp_exp_time != 20 | temp_exp_time_unit != "minutes"))
+
+# identify rows where proj_2025 is TT cold but exposure time is NOT 8 hours
+invalid_time_cold <- data |>
+  filter(proj_2025 == "TT Cold" &
+         (temp_exp_time != 8 | temp_exp_time_unit != "hours"))
+
+
+# find rows where fvfm time does not match 
+
+# identify rows where proj_2025 is TT hot or TT cold but fv_fm_hr is NOT 24
+invalid_fv_fm_hr <- data |>
+  filter(proj_2025 %in% c("TT Hot","TT Cold") &
+         fv_fm_hr != 24)
+
+
+# find rows where sample/bulk/nr is not matching 
+
+# identify rows where species is Calluna vulgaris but sample is NOT Bulk
+invalid_calluna_sample <- data |>
+  filter(species == "Calluna vulgaris" &
+         sample != "Bulk")
+
+# identify rows where sample is Bulk but bulk_nr_leaves is missing
+invalid_bulk_nr <- data |>
+  filter(sample == "Bulk" &
+         is.na(bulk_nr_leaves))
+
+
+# find rows bereaking mass rule
+
+# identify rows where dry mass exceeds wet mass
+invalid_mass <- data |>
+  filter(dry_mass_g > wet_mass_g)
+
+
+# find rows breaking height rules 
+
+# identify rows where any height value is below zero
+invalid_height_negative <- data |>
+  filter(height_s_flower < 0 |
+         height_s_top < 0)
+
+# identify rows where flower height exceeds top height
+invalid_height_relationship <- data |>
+  filter(height_s_flower > height_s_top)
+
+
+# find rows breaking fvfm rules 
+
+# identify rows where proj_2025 is TT hot or TT cold but fv/fm values are outside 0–0.85
+invalid_fv_fm_range <- data |>
+  filter(proj_2025 %in% c("TT Hot","TT Cold") &
+         (!between(fv_fm_initial,0,0.85) |
+          !between(fv_fm_final,0,0.85)))
+
+
+# find rows breaking decimal rules 
+
+# identify rows where fv/fm values do NOT have exactly two decimals
+invalid_fv_fm_decimals <- data |>
+  filter(!has_n_decimals(fv_fm_initial,2) |
+         !has_n_decimals(fv_fm_final,2))
+
+# identify rows where any leaf thickness value does NOT have three decimals
+invalid_thickness_decimals <- data |>
+  filter(if_any(starts_with("leaf_thickness"),
+                ~ !has_n_decimals(.,3)))
+
+# identify rows where wet mass does NOT have five decimals
+invalid_wet_mass_decimals <- data |>
+  filter(!has_n_decimals(wet_mass_g,5))
+
+# identify rows where dry mass does NOT have five decimals
+invalid_dry_mass_decimals <- data |>
+  filter(!has_n_decimals(dry_mass_g,5))
+
+
+# find rows breaking date rules 
+
+# identify rows where plant_nr 1–4 but date is NOT Nov 11 or Jan 14
+invalid_date_plants1_4 <- data |>
+  filter(plant_nr %in% 1:4 &
+         !(date %in% as.Date(c("2025-11-11","2026-01-14"))))
+
+# identify rows where plant_nr 5–8 but date is NOT Nov 13 or Jan 16
+invalid_date_plants5_8 <- data |>
+  filter(plant_nr %in% 5:8 &
+         !(date %in% as.Date(c("2025-11-13","2026-01-16"))))
+
+
+# find rows with unexpected NAs - disse funker ikke, burde være chr??
+
+# identify rows where proj_2025 is TT Hot or TT Cold but fv/fm final values are missing
+invalid_fv_fm_final <- data |>
+  filter(proj_2025 %in% c("TT Hot","TT Cold") & 
+  is.na(fv_fm_final))
+
+# identify rows  where pro_2025 is Traits but fm/fv initial 
+
+invalid_fv_fm_initial <- data |>
+  filter(proj_2025 %in% c("Traits") & 
+  is.na(fv_fm_initial))
+
+# identify rows where proj_2025 is Traits but all thickness values are missing
+invalid_thickness_traits <- data |>
+  filter(proj_2025 == "Traits" &
+         if_all(starts_with("leaf_thickness"), is.na))
+
+# identify rows where proj_2025 is Traits but wet or dry mass is missing
+invalid_mass_traits <- data |>
+  filter(proj_2025 == "Traits" &
+         (is.na(wet_mass_g) | is.na(dry_mass_g)))
+
+
+
+
+```
