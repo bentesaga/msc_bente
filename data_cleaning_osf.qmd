@@ -118,7 +118,7 @@ view(data) #checking that the right changes were made
 Want to check the following quality control rules:
 
 |  |
-|------------------------------------------------------------------------|
+|----|
 | Hot leaves must have leaf numbers between 1-9 |
 | Cold leaves must have leaf numbers between 10-15 |
 | Trait leaves must have leaf numbers between 16-20 |
