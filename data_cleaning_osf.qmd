@@ -681,7 +681,7 @@ data |>
 
 ### Hot and Cold final Fv/Fm IQR-flagging
 
-Based on slack messages: With Fv/Fm being bounded (can be 0), better to use robust method (IQR, z-test) than QQ-plot or skewness. So will use IQR-flagging here.
+Based on slack messages: With Fv/Fm being bounded (0-1), better to use robust method (IQR, z-test) than QQ-plot or skewness. So will use IQR-flagging here.
 
 ```{r}
 #| label: IQR-flagging final fvfm
@@ -801,7 +801,7 @@ Helt klart noe galt med:
 
 ### Trait leaves initial Fv/Fm IQR-flagging
 
-Based on slack messages: With Fv/Fm being bounded (can be 0), better to use robust method (IQR, z-test) than QQ-plot or skewness. So will use IQR-flagging here.
+Based on slack messages: With Fv/Fm being bounded (0-1), better to use robust method (IQR, z-test) than QQ-plot or skewness. So will use IQR-flagging here.
 
 ```{r}
 #| label: IQR-flagging initial fvfm
@@ -1171,11 +1171,11 @@ Testing the spread of the distribution compared to a target/theroetical distribu
 
 General advice:
 
--   If Q-Q plot is strongly curved and skew_proxy/skewness is large ??? transform is worth trying.
+-   If Q-Q plot is strongly curved and skew_proxy/skewness is large, transform is worth trying.
 
--   If Q-Q plot already looks straight and skew measures are small ??? don't transform.
+-   If Q-Q plot already looks straight and skew measures are small, don't transform.
 
--   If the trait is bounded (like Fv/Fm 0???1), prefer not logging; consider robust methods instead(?).
+-   If the trait is bounded (like Fv/Fm 0-1), prefer not logging; consider robust methods instead(?).
 
 ### Q-Q plot wet mass distribution
 
@@ -1483,12 +1483,14 @@ No high values for skew - all values are under 0.6. However there is a wider gap
 
 (based on my understanding right now, and that my code works how it is supposed to)
 
--   There are 3 rows that needs to bea dealt with after the quality control
+-   There are 3 rows that needs to be dealt with after the quality control checks
 
     1\) DKU2239 - probably a wet mass typo
 
-    2\) nov pio 1, leaf 7
+    2\) nov pio 1, leaf 7 - has NA for final fvfm
 
--   The IQR-flagging highlighted outliers that possibly need to be dealt with. Not sure how as there is qite a few.
+    3\) jan mat 4, leaf 14 - has NA for final fvfm
 
--   Thec Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
+-   The IQR-flagging highlighted outliers that possibly need to be dealt with. Not sure how for all, as there is quite a few. (notater i skriveboka)
+
+-   The Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
