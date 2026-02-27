@@ -73,7 +73,7 @@ glimpse(clean_names_data)
 
 #changing classes of all variables that should be in class factor
 variable_data <- clean_names_data |> 
-  mutate(across(c(site_name, species, proj_2025, project, age_class, plant_nr, leaf_age, sample, paired_with, calluna_shoot_type, temp_exp, temp_exp_time, temp_exp_time_unit, fv_fm_hr, scanned), as.factor))
+  mutate(across(c(month, site_name, species, proj_2025, project, age_class, plant_nr, leaf_age, sample, paired_with, calluna_shoot_type, temp_exp, temp_exp_time, temp_exp_time_unit, fv_fm_hr, scanned), as.factor))
 
 
 #changing classes of variables that should be in class dbl/numeric
@@ -1481,6 +1481,8 @@ No high values for skew - all values are under 0.6. However there is a wider gap
 
 ### Summary of errors/outliers
 
+NEED TO DO THIS OVER AGAIN AFTER BULK_NR OF LEAVES AT EACH STEP IS TAKEN INTO ACCOUNT
+
 (based on my understanding right now, and that my code works how it is supposed to)
 
 -   There are 3 rows that needs to be dealt with after the quality control
@@ -1523,7 +1525,7 @@ No high values for skew - all values are under 0.6. However there is a wider gap
 
     nov mat 5, leaf 10
 
-    jan pio 4, laf 14  - dead too early. same plant have outliers for other leaves too, but not as far off
+    jan pio 4, laf 14 - dead too early. same plant have outliers for other leaves too, but not as far off
 
     Some for fvfm initial too, these are much lower than the iqr.
 
@@ -1534,3 +1536,33 @@ No high values for skew - all values are under 0.6. However there is a wider gap
 Wet/dry mass and thickness, no values too far off the iqr, except DKU2239 as already mentioned
 
 -   The Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
+
+### Importing leaf scan data
+
+```{r}
+#| label: importing leaf scan data
+#| message: false
+
+# importing leaf scan data 
+# setting directory for where the files are to be imported from
+leaf_area_dir <- "leaf_scan_data" # location on my within the r project on my laptop
+
+leaf_area_raw <- list.files(leaf_area_dir, pattern = "\\.csv$", full.names = TRUE)
+
+names(leaf_area_raw) <- basename(leaf_area_raw)
+
+leaf_area_raw <- purrr::map_df(  leaf_area_raw,
+  ~ readr::read_csv(.x, show_col_types = FALSE),
+  .id = "source_file"
+)
+
+
+# removing duplicate barcode_ids, so "if "source_file" is DURIN_Calluna_leaf_area_2025_November.csv and "id" is DHK7373, or if  DURIN_Calluna_leaf_area_2026_January.csv and ASF3351
+# removing by slicing the specific rows
+
+leaf_area_clean <- leaf_area_raw |>
+   clean_names() |>
+   slice(-13) |> # remove nov duplicate 
+   slice (-268)  # remove jan duplicate 
+  
+```
