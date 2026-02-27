@@ -1171,11 +1171,11 @@ Testing the spread of the distribution compared to a target/theroetical distribu
 
 General advice:
 
--   If Q-Q plot is strongly curved and skew_proxy/skewness is large, transform is worth trying.
+-   If Q-Q plot is strongly curved and skew_proxy/skewness is large ??? transform is worth trying.
 
--   If Q-Q plot already looks straight and skew measures are small, don't transform.
+-   If Q-Q plot already looks straight and skew measures are small ??? don't transform.
 
--   If the trait is bounded (like Fv/Fm 0-1), prefer not logging; consider robust methods instead(?).
+-   If the trait is bounded (like Fv/Fm 0???1), prefer not logging; consider robust methods instead(?).
 
 ### Q-Q plot wet mass distribution
 
@@ -1211,7 +1211,7 @@ ggplot(df_compare_wm, aes(sample = value)) +
   theme_bw() +
   labs(
     title = paste("QQ plots (raw vs log1p) for", qq_trait_var_wm),
-    subtitle = "Straighter points means closer to normality within each month x age_class",
+    subtitle = "Straighter points ??? closer to normality within each Month ?? age_class",
     x = "Theoretical quantiles",
     y = "Sample quantiles"
   )
@@ -1479,18 +1479,58 @@ ggplot(skew_table_lt, # see mass code chunks for detailed comments
 
 No high values for skew - all values are under 0.6. However there is a wider gap between the points for log1p and raw here than in the skewness tests for mass. Indicates that the log1p transformation has a bigger impact here - ie. there is more skew in the data for thickness.
 
-### Conclusion
+### Summary of errors/outliers
 
 (based on my understanding right now, and that my code works how it is supposed to)
 
--   There are 3 rows that needs to be dealt with after the quality control checks
+-   There are 3 rows that needs to be dealt with after the quality control
 
-    1\) DKU2239 - probably a wet mass typo
+    1\) DKU2239 - probably a wet mass typo. one decimal place wrong, would make sense compared to the dry mass. Think the right way to go here is to correct the value. Want to recode the value 0.001338 so that it is replaced with 0.01338, suggestion code:
 
-    2\) nov pio 1, leaf 7 - has NA for final fvfm
+    ```{r}
+    #| label: correcting wrong wet mass 
+    #| message: false
 
-    3\) jan mat 4, leaf 14 - has NA for final fvfm
+    # suggestion for how to code correcting decimal typo for DKU2239 0.001338 -> 0.01338
 
--   The IQR-flagging highlighted outliers that possibly need to be dealt with. Not sure how for all, as there is quite a few. (notater i skriveboka)
+    data <- data |>
+     mutate(
+     wet_mass_g = if_else(
+          wet_mass_g == 0.001338,
+          0.01338,
+          wet_mass_g
+        )
+      )
+    ```
+
+    This is the only value I have found that I am fairly certain is a typo, so also the only one to potentiall correct I think. Need to note somewhere, not sure best place.
+
+    2\) nov pio 1, leaf 7 - NA for final fvfm
+
+    3\) jan mat 4, leaf 14 - NA for final fvfm
+
+    Would suggest to keep in clean dataset, but remove before analysis if reqired for it to work. know that both NAs come because of missing leaves at time of measurement. Should flag or write a comment w the reason, where is good? not sure yet
+
+-   The IQR-flagging highlighted outliers that possibly need to be dealt with. However, no impossible values as far as I can tell. Not sure if any needs recoding/removing. there is quite a few, though many are quite close to the iqr,
+
+    Most outliers for fvfm final, quite a few that is far off (lower than range) from the iqr;
+
+    nov pio 1, leaf 10
+
+    nov bui 2, leaf 14
+
+    nov bui 4, leaf 10
+
+    nov mat 5, leaf 10
+
+    jan pio 4, laf 14  - dead too early. same plant have outliers for other leaves too, but not as far off
+
+    Some for fvfm initial too, these are much lower than the iqr.
+
+    jan pio 4, leaf 16, 17, 19
+
+    jan mat 3, leaf 20
+
+Wet/dry mass and thickness, no values too far off the iqr, except DKU2239 as already mentioned
 
 -   The Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
