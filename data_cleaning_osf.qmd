@@ -120,7 +120,7 @@ view(data) #checking that the right changes were made
 Want to check the following quality control rules:
 
 |  |
-|----|
+|------------------------------------------------------------------------|
 | Hot leaves must have leaf numbers between 1-9 |
 | Cold leaves must have leaf numbers between 10-15 |
 | Trait leaves must have leaf numbers between 16-20 |
@@ -503,9 +503,9 @@ invalid_mass <- data |>
 
 *SUMMARY OF QUALITY CONTROL CHECKS:*
 
-There are 3 problematic rows; 2 with NAs for final fv/fm (nov pio 1, leaf 7 + jan mat 4, leaf 14 ), one with a wet_mass typo (envelope_id DKU2239).
+There are 3 problematic rows;
 
-THESE ROWS MUST BE DEALT WITH BEFORE PROCEEDING TO CHECK FOR OUTLIERS!
+two with NAs for final fv/fm (nov pio 1, leaf 7 + jan mat 4, leaf 14 ), one with a wet_mass typo (envelope_id DKU2239). comments added for missing FvFm, change wet_mass typo with code?
 
 ### Adding and standardizing remarks
 
@@ -568,14 +568,15 @@ unique(data$remark) # checking updates
 
 # making a scatterplot for initial fvfm for Trait leaves
 ggplot(data |> filter(proj_2025 == "Traits"),
-       aes(x = leaf_nr, y = fv_fm_initial)) +
-  geom_point(size = 2, alpha = 0.8) +
+       aes(x = temp_exp, y = fv_fm_initial, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8, 
+             position = position_jitter(width = 0.15)) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Leaf number",
+    x = "Temperature exposure (°C)",
     y = "Fv/Fm initial",
-    title = "Fv/Fm initial by age class and season"
+    title = "Fv/Fm initial by temperature exposure, age class and season"
   )
 
 # making a histogram for initial fvfm for Trait leaves 
@@ -602,22 +603,22 @@ ggplot(
 #| label: visualization plots final fvfm
 #| message: false
 
+
 # making a scatterplot for final fvfm hot leaves  
-ggplot(data |> filter(leaf_nr >= 1 & leaf_nr <= 9),
-       aes(x = leaf_nr, y = fv_fm_final)) +
+ggplot(data |> filter(proj_2025 == "TT Hot"),
+       aes(x = temp_exp, y = fv_fm_final, colour = factor(plant_nr))) +
   geom_point(size = 2, alpha = 0.8) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Leaf number",
+    x = "Temperature exposure (°C)",
     y = "Fv/Fm final",
     title = "Fv/Fm hot final by age class and season"
   )
 
 # making a histogram for final fvfm for hot leaves 
 
-ggplot(
-  data |> filter(leaf_nr >= 1 & leaf_nr <= 9),
+ggplot(data |> filter(proj_2025 == "TT Hot"),
   aes(x = fv_fm_final)
 ) +
   geom_histogram(binwidth = 0.02, boundary = 0) +
@@ -637,19 +638,19 @@ ggplot(
 #| message: false
 
 # making a scatterplot for cold leaves 
-ggplot(data |> filter(leaf_nr >= 10 & leaf_nr <= 15),
-       aes(x = leaf_nr, y = fv_fm_final)) +
+ggplot(data |> filter(proj_2025 == "TT Cold"),
+       aes(x = temp_exp, y = fv_fm_final, colour = factor(plant_nr) )) +
   geom_point(size = 2, alpha = 0.8) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Leaf number",
+    x = "Temperature exposure (°C)",
     y = "Fv/Fm final",
     title = "Fv/Fm cold final by age class and season"
   )
 
 ggplot(
-  data |> filter(leaf_nr >= 10 & leaf_nr <= 15),
+  data |> filter(proj_2025 == "TT Cold"),
   aes(x = fv_fm_final)
 ) +
   geom_histogram(binwidth = 0.02, boundary = 0) +
@@ -670,7 +671,7 @@ ggplot(
 
 # histogram for wet mass distribution trait leaves 
 ggplot(
-  data |> filter(leaf_nr >= 16 & leaf_nr <= 20),
+  data |> filter(proj_2025 == "Traits"),
   aes(x = wet_mass_g)
 ) +
   geom_histogram(binwidth = 0.001, boundary = 0) +
@@ -691,7 +692,7 @@ ggplot(
 
 # histogram for dry mass distribution trait leaves 
 ggplot(
-  data |> filter(leaf_nr >= 16 & leaf_nr <= 20),
+  data |> filter (proj_2025 == "Traits"),
   aes(x = wet_mass_g)
 ) +
   geom_histogram(binwidth = 0.001, boundary = 0) +
@@ -713,7 +714,7 @@ ggplot(
 
 # histogram for leaf thickness distribution for trait leaves 
 data |>
-  filter(leaf_nr >= 16 & leaf_nr <= 20) |>
+  filter(proj_2025 == "Traits") |>
   pivot_longer(starts_with("leaf_thickness"),
                values_to = "thickness_mm") |>
   ggplot(aes(x = thickness_mm)) +
@@ -752,6 +753,8 @@ trait_var_fin <- "fv_fm_final"   # here checking fvfm final
 
 # defining relevant grouping variables
 group_vars_fin <- c("age_class", "month", "temp_exp")
+
+#TRIED ADDING plant_nr HERE BUT ALL THE FLAGGED PONITS DISAPPEARED. WHY? therefore removed again. seems to work on all othe variables
 
 
 
@@ -835,7 +838,7 @@ if (all(c("month", "temp_exp", "age_class") %in% group_vars_fin)) {
       x = "Temperature Exposure (degree Celsius)",
       y = trait_var_fin,
       title = paste(trait_var_fin,
-                    "by Temperature Exposure ?? Month ?? Age Class (IQR flags)")
+                    "by Temperature Exposure x Month x Age Class (IQR flags)")
     ) +
     
     # black and white standard theme
@@ -871,7 +874,7 @@ trait_var_ini <- "fv_fm_initial"   # here checking fvfm initial
 
 
 # defining relevant grouping variables
-group_vars_ini <- c("month", "age_class")
+group_vars_ini <- c("month", "age_class", "plant_nr")
 
 
 # calculating the Inter Quartile Range (IQR) for a given trait, here fvfm initial for trait dataset
@@ -962,7 +965,7 @@ trait_var_wm <- "wet_mass_g"   # here checking wet mass
                                
 
 # defining relevant grouping variables
-group_vars_wm <- c("age_class", "month")
+group_vars_wm <- c("age_class", "month", "plant_nr")
 
 
 
@@ -1030,10 +1033,7 @@ if (all(c("month", "age_class") %in% group_vars_wm)) {
     theme_bw()
 }
 
-
 ```
-
-Found outliers, find out what to do with them.
 
 ### Dry mass IQR-flagging
 
@@ -1053,7 +1053,7 @@ trait_var_dm <- "dry_mass_g"   # here checking dry mass
                                
 
 # defining relevant grouping variables
-group_vars_dm <- c("age_class", "month")
+group_vars_dm <- c("age_class", "month", "plant_nr")
 
 
 
@@ -1116,10 +1116,7 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
     
     theme_bw()
 }
-
 ```
-
-Found outliers, find out what to do with them.
 
 ### Leaf thickness IQR-flagging
 
@@ -1148,7 +1145,7 @@ trait_var_lt <- "leaf_thickness_mm"   # combined thickness measurements
                                
 
 # defining relevant grouping variables
-group_vars_lt <- c("age_class", "month")
+group_vars_lt <- c("age_class", "month", "plant_nr")
 
 
 
@@ -1214,7 +1211,7 @@ if (all(c("month", "age_class") %in% group_vars_lt)) {
 
 ```
 
-Outliers found, find out what to do with them!
+Now all of the above (except final_fvfm) also take plant_nr into account when grouping. More outliers now, but that makes sense as the range is probably smaller within each plant.
 
 ### Q-Q plots and skewness tests
 
@@ -1588,6 +1585,23 @@ Wet/dry mass and thickness, no values too far off the iqr, except DKU2239 as alr
 
 -   The Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
 
+### Averaging leaf thickness values for each bulk leaf
+
+not to be used just yet
+
+```{r}
+#| label: mean leaf thickness
+#| message: false
+
+ # find the mean of the leaf thickness values for each bulk leaf, make column
+#data <- data |> 
+#  mutate(
+#    leaf_thickness_mm = rowMeans(
+#        cbind(leaf_thickness_1_mm, leaf_thickness_2_mm, leaf_thickness_3_mm),
+#    na.rm = TRUE
+#    ))
+```
+
 ### Importing leaf scan data
 
 ```{r}
@@ -1618,4 +1632,23 @@ leaf_area_clean <- leaf_area_raw |>
 
 view(leaf_area_clean)
   
+```
+
+### Merging leaf scan data with main dataframe 
+
+not to be used just yet
+
+```{r}
+#| label: merging data frames
+#| message: false
+
+# Join to the main dataframe by the envelop ID
+#data <- data |> 
+# left join, keep values from x, and only matching rows in y (leaf_area_db)
+# dplyr::left_join(leaf_area_db, by = "envelope_id")
+
+# create a unique plant_id column given age_class, month, and plant_nr
+#data <- data |> 
+#  mutate(
+#    unique_plant_id = paste(age_class, month, plant_nr, sep = "_"))
 ```
