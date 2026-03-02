@@ -120,7 +120,7 @@ view(data) #checking that the right changes were made
 Want to check the following quality control rules:
 
 |  |
-|------------------------------------------------------------------------|
+|----|
 | Hot leaves must have leaf numbers between 1-9 |
 | Cold leaves must have leaf numbers between 10-15 |
 | Trait leaves must have leaf numbers between 16-20 |
@@ -506,6 +506,57 @@ invalid_mass <- data |>
 There are 3 problematic rows; 2 with NAs for final fv/fm (nov pio 1, leaf 7 + jan mat 4, leaf 14 ), one with a wet_mass typo (envelope_id DKU2239).
 
 THESE ROWS MUST BE DEALT WITH BEFORE PROCEEDING TO CHECK FOR OUTLIERS!
+
+### Adding and standardizing remarks
+
+```{r}
+#| label: standardizing remarks 
+#| message: false 
+
+# filtering out an overview over all the non-NA columns in the remark column
+
+data_remarks <- data |> 
+  filter(!is.na(remark))
+
+# cleaning up remarks to match envelopes + standardizing 
+
+data <- data |> 
+  mutate(
+    # standardizing incorrect texts
+    # if remark column says only 3 leves at wet mass" change to "only 3 leaves at wet mass".  if remark column says "only 3 leaves at dry weight" change to "only 3 leaves at dry mass" etc. 
+    remark = case_when(
+      remark == "only 3 leves at wet mass" ~ "only 3 leaves at wet mass",
+      remark == "only 3 leaves at dry weight" ~ "only 3 leaves at dry mass",
+      remark == "leaf thickness 3 missing" ~ "only 2 leaf thickness values",
+      TRUE ~ remark
+    ),
+    
+    # adding and overwriting remarks for specific envelope_ids so that it matches writing on envelopes
+    remark = case_when(
+      envelope_id == "DMQ0002" ~ "one leaf has a bud",
+      envelope_id == "AOW0486" ~ "only 3 leaves at scanning",
+      envelope_id == "ASO5853" ~ "only 3 leaves at wet mass",
+      TRUE ~ remark
+    ),
+  )
+
+
+    # also, adding remark for missing FvFm remark from notebook
+data <- data |> 
+  mutate(
+    remark = case_when(
+      month == "November" &
+      age_class == "Pioneer" &
+      plant_nr == 1 &
+      leaf_nr == 7 &
+      is.na(remark) ~ "all leaves missing at FvFm",
+      TRUE ~ remark
+    )
+  )
+
+
+unique(data$remark) # checking updates 
+```
 
 ### Visualization plots (for outliers) per variable grouped by age class and month
 
@@ -1564,5 +1615,7 @@ leaf_area_clean <- leaf_area_raw |>
    clean_names() |>
    slice(-13) |> # remove nov duplicate 
    slice (-268)  # remove jan duplicate 
+
+view(leaf_area_clean)
   
 ```
