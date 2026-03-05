@@ -120,7 +120,7 @@ view(data) #checking that the right changes were made
 Want to check the following quality control rules:
 
 |  |
-|----|
+|------------------------------------------------------------------------|
 | Hot leaves must have leaf numbers between 1-9 |
 | Cold leaves must have leaf numbers between 10-15 |
 | Trait leaves must have leaf numbers between 16-20 |
@@ -520,6 +520,112 @@ data <- data |>
  )
 ```
 
+### Leaf scan data import
+
+```{r}
+#| label: importing leaf scan data
+#| message: false
+
+#OPTION 2
+# each file separately, then bind to merge them
+
+leaf_nov <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_2025_November.csv",
+                     show_col_types = FALSE) |>
+  clean_names() |>
+  mutate(source_file = "DURIN_Calluna_leaf_area_2025_November.csv")
+
+leaf_jan <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_2026_January.csv",
+                     show_col_types = FALSE) |>
+  clean_names() |>
+  mutate(source_file = "DURIN_Calluna_leaf_area_2026_January.csv")
+
+leaf_problem1 <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_problem_images.csv",
+                          show_col_types = FALSE) |>
+  clean_names() |>
+  mutate(source_file = "DURIN_Calluna_leaf_area_problem_images.csv")
+
+leaf_problem2 <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_problem_images2.csv",
+                          show_col_types = FALSE) |>
+  clean_names() |>
+  mutate(source_file = "DURIN_Calluna_leaf_area_problem_images2.csv")
+
+# combine all files
+leaf_area_raw <- bind_rows(
+  leaf_nov,
+  leaf_jan,
+  leaf_problem1,
+  leaf_problem2
+)
+
+# rename leaf area column
+leaf_area_clean <- leaf_area_raw |>
+  rename(leaf_area_sum = leaf_area) |>
+  select(source_file, x1, id, leaf_area_sum)
+
+View(leaf_area_clean)
+
+# OPTION 2 
+
+
+# importing leaf scan data 
+# setting directory for where the files are to be imported from
+leaf_area_dir <- "leaf_scan_data" # location on my within the r project on my laptop
+
+leaf_area_raw <- list.files(leaf_area_dir, pattern = "\\.csv$", full.names = TRUE)
+
+names(leaf_area_raw) <- basename(leaf_area_raw)
+
+leaf_area_raw <- purrr::map_df(  leaf_area_raw,
+  ~ readr::read_csv(.x, show_col_types = FALSE),
+  .id = "source_file"
+)
+
+
+# removing duplicate barcode_ids, that is now imported twice, once from  so "if "source_file" is DURIN_Calluna_leaf_area_2025_November.csv and "id" is DHK7373, or if  DURIN_Calluna_leaf_area_2026_January.csv and ASF3351
+# removing by slicing the specific rows
+
+leaf_area_clean <- leaf_area_raw |>
+   clean_names() |>
+   rename(leaf_area_sum = leaf_area) #|>
+#   slice(-13) |> # remove nov duplicate 
+#   slice (-268)  # remove jan duplicate 
+
+view(leaf_area_clean)
+
+```
+
+### Calculating average leaf area per leaf
+
+```{r}
+#| label: calculating leaf area
+#| message: false
+
+# calculating leaf area per leaf by dividing summarized leaf area by the correct number of leaves on scan
+leaf_area_clean <- leaf_area_clean |>
+  mutate(
+    leaf_area_mean = if_else(  # creating a new colum for mean leaf area per leaf
+      !is.na(n_correct) & n_correct > 0,
+      leaf_area_sum / n_correct,
+      NA_real_
+    )
+  )
+
+```
+
+### Merging leaf scan data with main data frame
+
+```{r}
+#| label: merging data frames
+#| message: false
+
+# mergning dataframes so that leaf scan data left joins by envelop ID
+
+#data <- data |> 
+# left join, keep values from x, and only matching rows in y (leaf_area_db)
+# dplyr::left_join(leaf_area_db, by = "envelope_id")
+
+```
+
 ### Adding and standardizing remarks
 
 ```{r}
@@ -728,72 +834,6 @@ data$dry_mass_leaf <- with(data, ifelse(
 
 ```
 
-### Leaf scan data import
-
-```{r}
-#| label: importing leaf scan data
-#| message: false
-
-# importing leaf scan data 
-# setting directory for where the files are to be imported from
-leaf_area_dir <- "leaf_scan_data" # location on my within the r project on my laptop
-
-leaf_area_raw <- list.files(leaf_area_dir, pattern = "\\.csv$", full.names = TRUE)
-
-names(leaf_area_raw) <- basename(leaf_area_raw)
-
-leaf_area_raw <- purrr::map_df(  leaf_area_raw,
-  ~ readr::read_csv(.x, show_col_types = FALSE),
-  .id = "source_file"
-)
-
-
-# removing duplicate barcode_ids, so "if "source_file" is DURIN_Calluna_leaf_area_2025_November.csv and "id" is DHK7373, or if  DURIN_Calluna_leaf_area_2026_January.csv and ASF3351
-# removing by slicing the specific rows
-
-leaf_area_clean <- leaf_area_raw |>
-   clean_names() |>
-   rename(leaf_area_sum = leaf_area) |>
-   slice(-13) |> # remove nov duplicate 
-   slice (-268)  # remove jan duplicate 
-
-view(leaf_area_clean)
-```
-
-### Calculating average leaf area per leaf
-
-need the updated leaf scan data before runnng this for real
-
-```{r}
-#| label: calculating leaf area
-#| message: false
-
-# calculating leaf area per leaf by dividing summarized leaf area by the correct number of leaves on scan
-leaf_area_clean <- leaf_area_clean |>
-  mutate(
-    leaf_area_mean = if_else(  # creating a new colum for mean leaf area per leaf
-      !is.na(n_correct) & n_correct > 0,
-      leaf_area_sum / n_correct,
-      NA_real_
-    )
-  )
-
-```
-
-### Merging leaf scan data with main data frame
-
-```{r}
-#| label: merging data frames
-#| message: false
-
-# mergning dataframes so that leaf scan data left joins by envelop ID
-
-#data <- data |> 
-# left join, keep values from x, and only matching rows in y (leaf_area_db)
-# dplyr::left_join(leaf_area_db, by = "envelope_id")
-
-```
-
 ### Visualization plots (for outliers) per variable grouped by age class and month
 
 **Final Fv/Fm hot**
@@ -809,7 +849,7 @@ ggplot(data |> filter(proj_2025 == "TT Hot"),
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Temperature exposure (°C)",
+    x = "Temperature exposure (B0C)",
     y = "Fv/Fm final",
     title = "Fv/Fm hot final by age class and season"
   )
@@ -842,7 +882,7 @@ ggplot(data |> filter(proj_2025 == "TT Cold"),
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Temperature exposure (°C)",
+    x = "Temperature exposure (B0C)",
     y = "Fv/Fm final",
     title = "Fv/Fm cold final by age class and season"
   )
@@ -875,7 +915,7 @@ ggplot(data |> filter(proj_2025 == "Traits"),
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Temperature exposure (°C)",
+    x = "Temperature exposure (B0C)",
     y = "Fv/Fm initial",
     title = "Fv/Fm initial by temperature exposure, age class and season"
   )
@@ -1548,7 +1588,7 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
     labs(
       x = "Month",
       y = "Dry mass (g)",
-      title = "Dry mass (g) grouped by Month and Age Class (with IQR flags)"
+      title = "Dry mass (g) mean grouped by Month and Age Class (with IQR flags)"
     ) +
     
     theme_bw()
@@ -1904,8 +1944,6 @@ NEED TO DO THIS OVER AGAIN AFTER BULK_NR OF LEAVES AT EACH STEP IS TAKEN INTO AC
     3\) jan mat 4, leaf 14 - NA for final fvfm
 
     Would suggest to keep in clean dataset, but remove before analysis if reqired for it to work. know that both NAs come because of missing leaves at time of measurement. Should flag or write a comment w the reason, where is good? not sure yet
-
-<!-- -->
 
 -   The Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
 
