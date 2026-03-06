@@ -526,89 +526,42 @@ data <- data |>
 #| label: importing leaf scan data
 #| message: false
 
-#OPTION 2
-# each file separately, then bind to merge them
-
-leaf_nov <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_2025_November.csv",
-                     show_col_types = FALSE) |>
-  clean_names() |>
-  mutate(source_file = "DURIN_Calluna_leaf_area_2025_November.csv")
-
-leaf_jan <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_2026_January.csv",
-                     show_col_types = FALSE) |>
-  clean_names() |>
-  mutate(source_file = "DURIN_Calluna_leaf_area_2026_January.csv")
-
-leaf_problem1 <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_problem_images.csv",
-                          show_col_types = FALSE) |>
-  clean_names() |>
-  mutate(source_file = "DURIN_Calluna_leaf_area_problem_images.csv")
-
-leaf_problem2 <- read_csv("leaf_scan_data/DURIN_Calluna_leaf_area_problem_images2.csv",
-                          show_col_types = FALSE) |>
-  clean_names() |>
-  mutate(source_file = "DURIN_Calluna_leaf_area_problem_images2.csv")
-
-# combine all files
-leaf_area_raw <- bind_rows(
-  leaf_nov,
-  leaf_jan,
-  leaf_problem1,
-  leaf_problem2
-)
-
-# rename leaf area column
-leaf_area_clean <- leaf_area_raw |>
-  rename(leaf_area_sum = leaf_area) |>
-  select(source_file, x1, id, leaf_area_sum)
-
-View(leaf_area_clean)
-
-# OPTION 2 
-
-
 # importing leaf scan data 
 # setting directory for where the files are to be imported from
 leaf_area_dir <- "leaf_scan_data" # location on my within the r project on my laptop
 
-leaf_area_raw <- list.files(leaf_area_dir, pattern = "\\.csv$", full.names = TRUE)
+leaf_area_files <- list.files(leaf_area_dir, pattern = "\\.csv$", full.names = TRUE)
 
-names(leaf_area_raw) <- basename(leaf_area_raw)
+names(leaf_area_files) <- basename(leaf_area_files)
 
-leaf_area_raw <- purrr::map_df(  leaf_area_raw,
-  ~ readr::read_csv(.x, show_col_types = FALSE),
+leaf_area_raw <- purrr::map_df(leaf_area_files,
+  \(.x){ 
+    f <- readr::read_csv(.x, show_col_types = FALSE)
+    if(ncol(f) == 1) {
+      f <- f |> 
+        separate_wider_delim(1, delim = ",", names = c("...1", "ID", "n", "leaf_area")) |> 
+        mutate(across(c(...1, n, leaf_area),  as.numeric)) |> 
+        mutate(ID = str_remove_all(ID, '"'))
+    }
+    f
+    },
   .id = "source_file"
 )
 
+view(leaf_area_raw) # checking that dataframe looks good 
 
-# removing duplicate barcode_ids, that is now imported twice, once from  so "if "source_file" is DURIN_Calluna_leaf_area_2025_November.csv and "id" is DHK7373, or if  DURIN_Calluna_leaf_area_2026_January.csv and ASF3351
-# removing by slicing the specific rows
 
+
+# cleaning names and removing duplicate columns 
 leaf_area_clean <- leaf_area_raw |>
-   clean_names() |>
-   rename(leaf_area_sum = leaf_area) #|>
-#   slice(-13) |> # remove nov duplicate 
-#   slice (-268)  # remove jan duplicate 
-
-view(leaf_area_clean)
-
-```
-
-### Calculating average leaf area per leaf
-
-```{r}
-#| label: calculating leaf area
-#| message: false
-
-# calculating leaf area per leaf by dividing summarized leaf area by the correct number of leaves on scan
-leaf_area_clean <- leaf_area_clean |>
-  mutate(
-    leaf_area_mean = if_else(  # creating a new colum for mean leaf area per leaf
-      !is.na(n_correct) & n_correct > 0,
-      leaf_area_sum / n_correct,
-      NA_real_
-    )
-  )
+  clean_names() |>
+  rename(leaf_area_sum = leaf_area) |> 
+  rename(envelope_id = id) |> 
+  # creating priority for preferred files
+  mutate(priority = if_else(str_detect(source_file, "images"), 1, 2)) |> 
+  arrange(envelope_id, priority) |>  # ordering so preferred rows come first
+  distinct(envelope_id, .keep_all = TRUE) |>  # keeping first row per id
+  select(-priority) # removing helper column
 
 ```
 
@@ -618,12 +571,20 @@ leaf_area_clean <- leaf_area_clean |>
 #| label: merging data frames
 #| message: false
 
-# mergning dataframes so that leaf scan data left joins by envelop ID
+# mergning dataframes so that leaf scan data left joins by envelope_id
 
-#data <- data |> 
-# left join, keep values from x, and only matching rows in y (leaf_area_db)
-# dplyr::left_join(leaf_area_db, by = "envelope_id")
+data <- data |>
+  dplyr::left_join(
+    leaf_area_clean |> #choosing the leaf_area_clean to join
+      dplyr::select( #selecting only the columns I want to have join the main data frame, changing the name of the n column to be more intuitive
+        envelope_id,
+        bulk_nr_leaf_area = n,
+        leaf_area_sum
+      ),
+    by = "envelope_id"
+  )
 
+view(data)
 ```
 
 ### Adding and standardizing remarks
@@ -728,14 +689,14 @@ data$wet_mass_leaf <- with(data, ifelse(
 
 ```
 
-#### Leaf area (need to import first)
+#### Leaf area
 
 ```{r}
 #| label: leaf area bulk_nr and remark
 #| message: false
 
-# making new columns 
-data$bulk_nr_leaf_area <- data$bulk_nr_leaves # copying bulk_nr_leaves column, ready to be updated according to remarks regarding missing leaves at scanning 
+# bulk_nr_leaf_area column already exist, ready to be updated according to remarks regarding missing leaves at scanning 
+# making new column for remarks  
 
 data$remark_bulk_nr_leaf_area <- NA # making new remark column, ready for manual entries
 
@@ -756,6 +717,21 @@ data$leaf_area_mean <- with(data, ifelse(
   leaf_area_sum / bulk_nr_leaf_area,
   NA
 ))
+
+
+#| label: calculating leaf area
+#| message: false
+
+# calculating leaf area per leaf by dividing summarized leaf area by the correct number of leaves on scan
+leaf_area_clean <- leaf_area_clean |>
+  mutate(
+    leaf_area_mean = if_else(  # creating a new colum for mean leaf area per leaf
+      !is.na(n_correct) & n_correct > 0,
+      leaf_area_sum / n_correct,
+      NA_real_
+    )
+  )
+
 
 ```
 
@@ -966,6 +942,19 @@ ggplot(
 #| message: false
 
 # need the data first, but will be the same principles 
+# histogram for leaf area distribution trait leaves (mean area per leaf)
+ggplot(
+  data |> filter(proj_2025 == "Traits"),
+  aes(x = wet_mass_g)
+) +
+  geom_histogram(binwidth = 0.001, boundary = 0) +
+  facet_grid(age_class ~ month) +
+  theme_bw() +
+  labs(
+    x = "leaf area per leaf (cm2?)",
+    y = "Count",
+    title = "Distribution of leaf area by age class and month"
+  )
 
 ```
 
@@ -985,7 +974,7 @@ data |>
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Leaf thickness (mm)",
+    x = "Leaf thickness rep (mm)",
     y = "Count",
     title = "Distribution of leaf thickness"
   )
@@ -1141,6 +1130,7 @@ Based on slack messages: With Fv/Fm being bounded (0-1), better to use robust me
 #| message: false
 
 # choose the correct dataset for trait checking, here Traits for fv_fm_inititial 
+# don't need the bulk nr here
 
 df_for_flagging_fvfm_initial <- data |>                # remember to update name of df for each variable, will run                                                            them in separate chuncks
   filter(proj_2025 == "Traits") |>      # filtering for hot and cold treatments
@@ -1215,7 +1205,7 @@ if (all(c("month", "age_class") %in% group_vars_ini)) {
       x = "Month",
       y = trait_var_ini,
       title = paste(trait_var_ini,
-                    "Temperature Exposure by Month and Age Class (IQR flags)")
+                    "Initial FvFm by Month, Age Class, Plant nr (IQR flags)")
     ) +
     
     # black and white standard theme
@@ -1226,7 +1216,19 @@ if (all(c("month", "age_class") %in% group_vars_ini)) {
 
 Visually this is not very good with the boxplots being very narrow, but the outliers are shown in red! Can see that the initial fvfm values are more spread out in january, also more outliers here.
 
+28 outliers flagged, most rather close to the iqr. The ones that are further off is
+
+-   mat nov 6, leaf 16
+
+-   pio jan 1, leaf 19
+
+-   pio jan 3, leaf 19
+
+-   also some that are over the upper range of iqr
+
 ### Wet mass weight IQR-flagging
+
+NEED TO SCALE BY BULK NR LEAVES AT THIS STAGE, ADD COLOUR FOR EACH INDIVIDUAL PLANT
 
 ```{r}
 #| label: IQR-flagging wet mass
@@ -1513,6 +1515,8 @@ if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
 ```
 
 ### Dry mass IQR-flagging
+
+NEED TO SCALE BY BULK NR LEAVES AT THIS STAGE, ADD COLOUR FOR EACH INDIVIDUAL PLANT
 
 ```{r}
 #| label: IQR-flagging wet mass
@@ -1949,4 +1953,10 @@ NEED TO DO THIS OVER AGAIN AFTER BULK_NR OF LEAVES AT EACH STEP IS TAKEN INTO AC
 
 ### SLA (specific leaf area) calculation
 
+leaf area divided by dry mass - need to remove outliers at earlier stages first. then go through
+
 ### LDMC (leaf dry matter content) calculation
+
+dry mass divided by wet mass - need to remove outliers at earlier stages first.
+
+should plot we mass against dry mass , should give a relatively straight line
