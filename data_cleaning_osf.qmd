@@ -681,7 +681,7 @@ data$remark_bulk_nr_wet_mass[data$remark == "only 3 leaves at wet mass"] <- "cor
 
 # calculating mean wet mass per leaf, based on updated bulk_nr_wet_mass values
 # not sure if it actually necessary to make a column explicitly for this 
-data$wet_mass_leaf <- with(data, ifelse(
+data$wet_mass_mean <- with(data, ifelse(
   !is.na(bulk_nr_wet_mass) & bulk_nr_wet_mass > 0,
   wet_mass_g / bulk_nr_wet_mass,
   NA
@@ -695,12 +695,16 @@ data$wet_mass_leaf <- with(data, ifelse(
 #| label: leaf area bulk_nr and remark
 #| message: false
 
-# bulk_nr_leaf_area column already exist, ready to be updated according to remarks regarding missing leaves at scanning 
-# making new column for remarks  
+# bulk_nr_leaf_area column already exist w correct nr of leaves after joining data frames. moving so they are right of wet mass mean. 
 
+data <- data |>
+  dplyr::relocate(bulk_nr_leaf_area, leaf_area_sum, .after = wet_mass_mean)
+
+# ready to be updated according to remarks regarding missing leaves at scanning. 
+# making new column for remarks  
 data$remark_bulk_nr_leaf_area <- NA # making new remark column, ready for manual entries
 
-# overwriting bulk_nr_leaf_area and adding update remark for rows with remarks regarding missing leaves at wet mass, then for leaves missing at scanning 
+# adding update remark for rows with remarks regarding missing leaves at wet mass, then for leaves missing at scanning 
 
 data$bulk_nr_leaf_area[data$remark == "only 3 leaves at wet mass"] <- 3
 
@@ -711,27 +715,12 @@ data$remark_bulk_nr_leaf_area[data$remark == "only 3 leaves at scanning"] <- "co
 data$bulk_nr_leaf_area[data$remark == "only 2 leaves at scanning"] <- 2
 data$remark_bulk_nr_leaf_area[data$remark == "only 2 leaves at scanning"] <- "corrected to 2 leaves at scanning"
 
-# calculating mean leaf area per leaf, unless there are NAs or 0s
+# calculating mean leaf area per leaf
 data$leaf_area_mean <- with(data, ifelse(
-  !is.na(bulk_nr_leaf_area) & bulk_nr_leaf_area > 0,
+  !is.na(bulk_nr_leaf_area) & bulk_nr_leaf_area > 0, # except where there are NAs or 0s
   leaf_area_sum / bulk_nr_leaf_area,
   NA
 ))
-
-
-#| label: calculating leaf area
-#| message: false
-
-# calculating leaf area per leaf by dividing summarized leaf area by the correct number of leaves on scan
-leaf_area_clean <- leaf_area_clean |>
-  mutate(
-    leaf_area_mean = if_else(  # creating a new colum for mean leaf area per leaf
-      !is.na(n_correct) & n_correct > 0,
-      leaf_area_sum / n_correct,
-      NA_real_
-    )
-  )
-
 
 ```
 
@@ -765,8 +754,6 @@ data$bulk_nr_leaf_thickness[data$remark == "only 2 leaves at thickness"] <- 2
 data$remark_bulk_nr_leaf_thickness[data$remark == "only 2 leaves at thickness"] <- "corrected to 2 leaves at thickness"
 
 # calculate mean thickness here or not?
-
-
 ```
 
 #### Dry mass
@@ -801,8 +788,8 @@ data$bulk_nr_dry_mass[data$remark == "only 3 leaves at dry mass"] <- 3
 data$remark_bulk_nr_dry_mass[data$remark == "only 3 leaves at dry mass"] <- "corrected to 3 leaves at dry mass"
 
 # calculating mean dry mass per leaf, by dividing dry_mass_g by the updated bulk_nr_dry_mass number of leaves
-# not sure if it actually necessary to make a column explicitly for this 
-data$dry_mass_leaf <- with(data, ifelse(
+ 
+data$dry_mass_mean <- with(data, ifelse(
   !is.na(bulk_nr_dry_mass) & bulk_nr_dry_mass > 0,
   dry_mass_g / bulk_nr_dry_mass,
   NA
