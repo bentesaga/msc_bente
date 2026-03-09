@@ -120,7 +120,7 @@ view(data) #checking that the right changes were made
 Want to check the following quality control rules:
 
 |  |
-|----|
+|------------------------------------------------------------------------|
 | Hot leaves must have leaf numbers between 1-9 |
 | Cold leaves must have leaf numbers between 10-15 |
 | Trait leaves must have leaf numbers between 16-20 |
@@ -2140,7 +2140,7 @@ ggplot(data |> filter(proj_2025 == "Traits"),
 # slope on blue line much smaller than the 1:1 refrence = this relationship seems likely as the wet mass should increase more quickly than the dry mass
 ```
 
-### SLA (specific leaf area) calculation
+### SLA (specific leaf area) calculation and visualization 
 
 leaf area divided by dry mass - need to remove outliers at earlier stages first. then go through
 
@@ -2159,25 +2159,63 @@ data <- data |>
     )
   )
 
-# visualization plot for SLA 
 
-# making a scatterplot for SLA, plant_nr on x-axis and weight in SLA on y-axis
-ggplot(data |> filter(proj_2025 == "Traits"),
-       aes(x = factor(plant_nr), y = sla, colour = factor(plant_nr))) +
-  geom_point(size = 2, alpha = 0.8,
-             position = position_jitter(width = 0.15)) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
+# vizalisation plot SLA vs dry mass
+ggplot(data |> filter(!is.na(sla)), 
+       aes(x = dry_mass_mean, y = sla, colour = factor(age_class))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "lm", se = TRUE, colour = "blue") +
   labs(
-    x = "Plant number",
-    y = "SLA",
-    title = "SLA (specific leaf area) by plant, age class and month"
-  )
+    x = "Dry Mass Mean (g)",
+    y = "SLA (cm²/g)",
+    title = "SLA vs Dry Mass Mean"
+  ) +
+  theme_bw()
+
+
+# visualization box plot for SLA 
+ggplot(data |> filter(!is.na(sla)), 
+       aes(x = factor(month), y = sla, colour = factor(age_class))) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.35) +  # adds individual points
+  facet_grid(~ age_class) +
+  labs(
+    x = "Month",
+    y = "Specific Leaf Area (cm²/g)",
+    title = "Distribution of SLA by Month and Age Class"
+  ) +
+  theme_bw()
+
+# density plot 
+ggplot(data |> filter(!is.na(sla)), 
+       aes(x = sla, colour = factor(age_class))) +
+  geom_density(size = 1.2) +
+  labs(
+    x = "Specific Leaf Area (cm²/g)",
+    y = "Density",
+    title = "Density of SLA by Age Class"
+  ) +
+  theme_bw()
+
+# clearly a nov bui 6 leaf 17 is an outlier. caused by low dry weight!
 ```
 
-### LDMC (leaf dry matter content) calculation
+### SLA IQR-flagging 
 
-dry mass divided by wet mass - need to remove outliers at earlier stages first.
+```{r}
+#| label: SLA iqr flagging 
+#| message: false
+
+
+
+
+```
+
+QQ
+
+Skewness
+
+### LDMC (leaf dry matter content) calculation and visualization
 
 ```{r}
 #| label: calculating LDMC 
@@ -2188,11 +2226,40 @@ dry mass divided by wet mass - need to remove outliers at earlier stages first.
 data <- data |> 
   mutate(
     ldmc = ifelse( # making new ldmc column
-      !is.na(wet_m_mean) & !is.na(dry_mass_mean) & dry_mass_mean > 0, # excluding rows with NAs or 0s
-      leaf_area_mean / dry_mass_mean, #leaf area divided by dra mass
+      !is.na(dry_mass_mean) & !is.na(wet_mass_mean) & wet_mass_mean > 0, # excluding rows with NAs or 0s
+      dry_mass_mean / wet_mass_mean, #leaf area divided by dra mass
       NA_real_
     )
   )
+
+
+# visualization box plot for LDMC 
+ggplot(data |> filter(!is.na(ldmc)), 
+       aes(x = factor(month), y = ldmc, colour = factor(age_class))) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.35) +  # adds individual points
+  facet_grid(~ age_class) +
+  labs(
+    x = "Month",
+    y = "Leaf dry matter content",
+    title = "Distribution of LDMC by Month and Age Class"
+  ) +
+  theme_bw()
+
+# density plot 
+ggplot(data |> filter(!is.na(ldmc)), 
+       aes(x = ldmc, colour = factor(age_class))) +
+  geom_density(size = 1.2) +
+  labs(
+    x = "Leaf dry matter content",
+    y = "Density",
+    title = "Density of LDMC by Age Class"
+  ) +
+  theme_bw()
 ```
 
-should plot we mass against dry mass , should give a relatively straight line
+iqr
+
+qq
+
+skewness
