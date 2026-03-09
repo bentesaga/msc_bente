@@ -120,7 +120,7 @@ view(data) #checking that the right changes were made
 Want to check the following quality control rules:
 
 |  |
-|------------------------------------------------------------------------|
+|----|
 | Hot leaves must have leaf numbers between 1-9 |
 | Cold leaves must have leaf numbers between 10-15 |
 | Trait leaves must have leaf numbers between 16-20 |
@@ -753,7 +753,17 @@ data$remark_bulk_nr_leaf_thickness[data$remark == "only 3 leaves at thickness"] 
 data$bulk_nr_leaf_thickness[data$remark == "only 2 leaves at thickness"] <- 2
 data$remark_bulk_nr_leaf_thickness[data$remark == "only 2 leaves at thickness"] <- "corrected to 2 leaves at thickness"
 
-# calculate mean thickness here or not?
+# calculate mean thickness here or not? might check for outlier reps first, so may be too early here. if not use this:
+
+# calculating means from the three rows listed
+data$leaf_thickness_mean <- rowMeans(
+  data[, c("leaf_thickness_1_mm",
+           "leaf_thickness_2_mm",
+           "leaf_thickness_3_mm")],
+  na.rm = TRUE # for rows that are not NA
+)
+
+data$leaf_thickness_mean[is.nan(data$leaf_thickness_mean)] <- NA # removing rows returned as NaN (happens w rows that have all 3 thickness values)
 ```
 
 #### Dry mass
@@ -812,7 +822,7 @@ ggplot(data |> filter(proj_2025 == "TT Hot"),
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Temperature exposure (B0C)",
+    x = "Temperature exposure (C)",
     y = "Fv/Fm final",
     title = "Fv/Fm hot final by age class and season"
   )
@@ -847,7 +857,7 @@ ggplot(data |> filter(proj_2025 == "TT Cold"),
   labs(
     x = "Temperature exposure (B0C)",
     y = "Fv/Fm final",
-    title = "Fv/Fm cold final by age class and season"
+    title = "Fv/Fm cold final by age class and month"
   )
 
 ggplot(
@@ -870,21 +880,19 @@ ggplot(
 #| label: visualization initial fvfm
 #| message: false 
 
-# making a scatterplot for initial fvfm for Trait leaves
+# making a scatterplot for initial fvfm for Trait leaves by plant_nr, age class, month
 ggplot(data |> filter(proj_2025 == "Traits"),
-       aes(x = temp_exp, y = fv_fm_initial, colour = factor(plant_nr))) +
-  geom_point(size = 2, alpha = 0.8, 
-             position = position_jitter(width = 0.15)) +
+       aes(x = factor(plant_nr), y = fv_fm_initial, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Temperature exposure (B0C)",
+    x = "Plant number",
     y = "Fv/Fm initial",
-    title = "Fv/Fm initial by temperature exposure, age class and season"
+    title = "Fv/Fm initial by plant, age class and month"
   )
 
 # making a histogram for initial fvfm for Trait leaves 
-
 ggplot(
   data |> filter(proj_2025 == "Traits"),
   aes(x = fv_fm_initial)
@@ -907,10 +915,23 @@ ggplot(
 #| label: visualization plots wet mass
 #| message: false
 
+# making a scatterplot for wet mass mean for trait leaves, plant_nr on x-axis and weight in g on y-axis
+ggplot(data |> filter(proj_2025 == "Traits"),
+       aes(x = factor(plant_nr), y = wet_mass_mean, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8,
+             position = position_jitter(width = 0.15)) +
+  facet_grid(age_class ~ month) +
+  theme_bw() +
+  labs(
+    x = "Plant number",
+    y = "Wet mass mean (g)",
+    title = "Mean wet mass per leaf by plant, age class and month"
+  )
+
 # histogram for wet mass distribution trait leaves 
 ggplot(
   data |> filter(proj_2025 == "Traits"),
-  aes(x = wet_mass_g)
+  aes(x = wet_mass_mean)
 ) +
   geom_histogram(binwidth = 0.001, boundary = 0) +
   facet_grid(age_class ~ month) +
@@ -927,22 +948,33 @@ ggplot(
 ```{r}
 #| label: visualization plot leaf area
 #| message: false
-
-# need the data first, but will be the same principles 
-# histogram for leaf area distribution trait leaves (mean area per leaf)
-ggplot(
-  data |> filter(proj_2025 == "Traits"),
-  aes(x = wet_mass_g)
-) +
-  geom_histogram(binwidth = 0.001, boundary = 0) +
+ 
+# making scatterpolt for leaf area mean for trait leaves, plant_nr on x-axis and mean leaf area on y-axis. by plant nr, age class, month 
+ggplot(data |> filter(proj_2025 == "Traits"),
+       aes(x = factor(plant_nr), y = leaf_area_sum, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8,
+             position = position_jitter(width = 0.15)) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "leaf area per leaf (cm2?)",
+    x = "Plant number",
+    y = "Leaf area (mmB2)",
+    title = "Leaf area by plant, age class and month"
+  )
+
+#histogram for mean leaf area
+ggplot(
+  data |> filter(proj_2025 == "Traits"),
+  aes(x = leaf_area_sum)
+) +
+  geom_histogram(binwidth = 0.05, boundary = 0) +
+  facet_grid(age_class ~ month) +
+  theme_bw() +
+  labs(
+    x = "Leaf area",
     y = "Count",
     title = "Distribution of leaf area by age class and month"
   )
-
 ```
 
 **Leaf thickness**
@@ -951,21 +983,39 @@ ggplot(
 #| label: visualization plot leaf thickness
 #| message: false
 
-# histogram for leaf thickness distribution for trait leaves 
-data |>
+# histogram for leaf thickness distribution for trait leaves, not mean, rather seperate reps
+
+data_long_thickness <- data |>
   filter(proj_2025 == "Traits") |>
-  pivot_longer(starts_with("leaf_thickness"),
-               values_to = "thickness_mm") |>
-  ggplot(aes(x = thickness_mm)) +
-  geom_histogram(bins = 30) +
+  pivot_longer( # to get the seperate columns reshaped
+    cols = c(leaf_thickness_1_mm, leaf_thickness_2_mm, leaf_thickness_3_mm),
+    names_to = "replicate",
+    values_to = "leaf_thickness_mm"
+  )
+
+ggplot(data_long_thickness, #plotting drom long format
+       aes(x = factor(plant_nr), y = leaf_thickness_mm, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8,
+             position = position_jitter(width = 0.15)) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Leaf thickness rep (mm)",
-    y = "Count",
-    title = "Distribution of leaf thickness"
+    x = "Plant number",
+    y = "Leaf thickness (mm)",
+    title = "Leaf thickness replicates by plant, age class and month"
   )
 
+# making histogram
+ggplot(data_long_thickness,
+       aes(x = leaf_thickness_mm)) +
+  geom_histogram(binwidth = 0.01, boundary = 0) +
+  facet_grid(age_class ~ month) +
+  theme_bw() +
+  labs(
+    x = "Leaf thickness (mm)",
+    y = "Count",
+    title = "Distribution of leaf thickness measurements by age class and month"
+  )
 ```
 
 **Dry mass**
@@ -974,12 +1024,25 @@ data |>
 #| label: visualization plot dry mass
 #| message: false
 
-# histogram for dry mass distribution trait leaves 
+# making a scatterplot for dry mass mean for trait leaves, plant_nr on x-axis and weight in g on y-axis
+ggplot(data |> filter(proj_2025 == "Traits"),
+       aes(x = factor(plant_nr), y = dry_mass_mean, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8,
+             position = position_jitter(width = 0.15)) +
+  facet_grid(age_class ~ month) +
+  theme_bw() +
+  labs(
+    x = "Plant number",
+    y = "Dry mass mean (g)",
+    title = "Mean dry mass per leaf by plant, age class and month"
+  )
+
+# histogram for dry mass mean distribution trait leaves 
 ggplot(
-  data |> filter (proj_2025 == "Traits"),
-  aes(x = wet_mass_g)
+  data |> filter(proj_2025 == "Traits"),
+  aes(x = dry_mass_mean)
 ) +
-  geom_histogram(binwidth = 0.001, boundary = 0) +
+  geom_histogram(binwidth = 0.0001, boundary = 0) +
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
@@ -1010,12 +1073,11 @@ trait_var_fin <- "fv_fm_final"   # here checking fvfm final
 
 
 # defining relevant grouping variables
-group_vars_fin <- c("age_class", "month", "temp_exp", "plant_nr")
+group_vars_fin <- c("age_class", "month", "temp_exp")
 
-#TRIED ADDING plant_nr HERE BUT ALL THE FLAGGED PONITS DISAPPEARED. WHY? therefore removed again. seems to work on all othe variables
-#might be just that there is no outliers - that is also a possibility, so put it back in during tues meeting 
-
-
+#TRIED ADDING plant_nr HERE BUT ALL THE FLAGGED PONITS DISAPPEARED
+#RICHARD SAID IT MAKES MORE SENSE TO EXCLUDE pant_nr FROM THE GROUPING HERE, SO WILL REMOVE AGAIN
+#since each plant only has one leaf pr treatment there will be nothing outside the iqr??
 
 # calculating the Inter Quartile Range (IQR) for a given trait, here fvfm final for hot and cold datasets
 
@@ -1165,15 +1227,16 @@ if (all(c("month", "age_class") %in% group_vars_ini)) {
   
   ggplot(data_flagged_fvfm_initial, # using flagged dataset
          aes(x = month,  # defining temperature exposure as x-axis, here both hot and cold included
-             y = .data[[trait_var_ini]])) +  # the variable originally assigned, here fv_fm_final
+             y = .data[[trait_var_ini]])) +  # the variable originally assigned, here fv_fm_final 
     
     geom_boxplot(outlier.shape = NA) +
     
-# create the base plots using one point estimate per plant (i.e. the 'leaf in the bath/freezer')
+    
+    # create the base plots using one point estimate per plant (i.e. the 'leaf in the bath/freezer/measurement')
     geom_point(
+      aes(colour = factor(plant_nr)),  # colour mapping only here
       alpha = 0.35, # change the opacity of the points, more see-throug
       position = position_jitter(width = 0.15), # make them not overlap
-      colour = "grey50" # specify the colour so the outliers stand out more
     ) +
     
     # Create the outlier points using the flagged column
@@ -1215,21 +1278,19 @@ Visually this is not very good with the boxplots being very narrow, but the outl
 
 ### Wet mass weight IQR-flagging
 
-NEED TO SCALE BY BULK NR LEAVES AT THIS STAGE, ADD COLOUR FOR EACH INDIVIDUAL PLANT
-
 ```{r}
 #| label: IQR-flagging wet mass
 #| message: false
 
-# choose the correct dataset for trait checking, here Traits for wet_mass_g 
+# choose the correct dataset for trait checking, here Traits for wet_mass_mean, so the mean wet mass for the bulk sample measured 
 
 df_for_flagging_wet_mass <- data |>     # remember to update name of df
   filter(proj_2025 == "Traits") |>      # filtering for hot and cold treatments
-  filter(!is.na(wet_mass_leaf))         # filtering for any row that DO NOT have NA for wet_mass_leaf, the updated row containing mean wet mass based on correct nr of leaves at that stage
+  filter(!is.na(wet_mass_mean))         # filtering for any row that DO NOT have NA for wet_mass_mean, the updated row containing mean wet mass based on correct nr of leaves at that stage
 
 
 # defining the variable for outlier checking here 
-trait_var_wm <- "wet_mass_leaf"   # here checking average wet mass per leaf
+trait_var_wm <- "wet_mass_mean"   # here checking average wet mass per leaf
                                
 
 # defining relevant grouping variables
@@ -1274,10 +1335,10 @@ if (all(c("month", "age_class") %in% group_vars_wm)) {
     
 # create the base plots using one point estimate per plant "bulk trait leaf"
     geom_point(
+       aes(colour = factor(plant_nr)),  # colour mapping only here
       alpha = 0.35, # change the opacity of the points, more see-through
       position = position_jitter(width = 0.15), # make them not overlap
-      colour = "grey50" # specify the colour so the outliers stand out more
-    ) +
+          ) +
     
     # Create the outlier points using the flagged column
     geom_point(
@@ -1311,8 +1372,76 @@ Now based on mean wet mass per individual leaf! **Outliers found.**
 #| label: IQR-flagging leaf area
 #| message: false
 
-#need to get the data first, but the principle is the same as for the others 
+# choose the correct dataset for trait checking, here Traits for leaf_area_mean
+df_for_flagging_leaf_area <- data |>     
+  filter(proj_2025 == "Traits") |>      
+  filter(!is.na(leaf_area_mean))         # using the column based on the mean leaf area based on currect bulk nr leaves, choosing only rows with valid mean leaf area
+
+
+# defining the variable for outlier checking here 
+trait_var_la <- "leaf_area_mean"   # here checking average leaf area per leaf
+                               
+# defining relevant grouping variables
+group_vars_la <- c("age_class", "month", "plant_nr")
+
+
+# calculating the Inter Quartile Range (IQR) for leaf area
+data_flagged_leaf_area <- df_for_flagging_leaf_area |>  
+  filter(!is.na(.data[[trait_var_la]])) |>  
+  group_by(across(all_of(group_vars_la))) |>  
+  mutate(
+    q1  = quantile(.data[[trait_var_la]], 0.25, na.rm = TRUE),
+    q3  = quantile(.data[[trait_var_la]], 0.75, na.rm = TRUE),
+    iqr = q3 - q1,
+    lo  = q1 - 1.5 * iqr,
+    hi  = q3 + 1.5 * iqr,
+    flag_iqr = .data[[trait_var_la]] < lo | .data[[trait_var_la]] > hi
+  ) |> 
+  ungroup()
+
+# reviewing the flagged rows
+outlier_review_leaf_area <- data_flagged_leaf_area |> 
+  filter(flag_iqr) |> 
+  dplyr::select(all_of(group_vars_la), plant_nr, leaf_nr, all_of(trait_var_la), lo, hi)
+
+
+# MAKING PLOTS! 
+if (all(c("month", "age_class") %in% group_vars_la)) {
+  
+  ggplot(data_flagged_leaf_area,
+         aes(x = month,
+             y = .data[[trait_var_la]])) +
+    
+    geom_boxplot(outlier.shape = NA) +
+    
+    # all points coloured by plant_nr
+    geom_point(
+       aes(colour = factor(plant_nr)),  
+       alpha = 0.35,
+       position = position_jitter(width = 0.15)
+    ) +
+    
+    # flagged points in red
+    geom_point(
+      data = data_flagged_leaf_area |>  filter(flag_iqr),
+      position = position_jitter(width = 0.15),
+      colour = "red",
+      size = 2
+    ) +
+    
+    facet_grid(age_class ~ .) +
+    
+    labs(
+      x = "Month",
+      y = "Leaf area (cm2)",  # I think this would be th e right unit
+      title = "Leaf area mean grouped by Month and Age Class (with IQR flags)"
+    ) + 
+    
+    theme_bw()
+}
 ```
+
+Now based on mean leaf area per leaf! **Outliers found. None look very problematic**
 
 ### Leaf thickness individual rep IQR-flagging
 
@@ -1351,12 +1480,12 @@ group_vars_lt_rep <- c("age_class", "month", "plant_nr", "thickness_rep")
 data_flagged_leaf_thickness_rep <- df_for_flagging_leaf_thickness_rep |>  
   group_by(across(all_of(group_vars_lt_rep))) |>  
   mutate(
-    q1  = quantile(.data[[trait_var_lt]], 0.25, na.rm = TRUE), 
-    q3  = quantile(.data[[trait_var_lt]], 0.75, na.rm = TRUE), 
+    q1  = quantile(.data[[trait_var_lt_rep]], 0.25, na.rm = TRUE), 
+    q3  = quantile(.data[[trait_var_lt_rep]], 0.75, na.rm = TRUE), 
     iqr = q3 - q1, 
     lo  = q1 - 1.5 * iqr, 
     hi  = q3 + 1.5 * iqr, 
-    flag_iqr = .data[[trait_var_lt]] < lo | .data[[trait_var_lt]] > hi
+    flag_iqr = .data[[trait_var_lt_rep]] < lo | .data[[trait_var_lt_rep]] > hi
   ) |> 
   ungroup()
 
@@ -1364,7 +1493,7 @@ data_flagged_leaf_thickness_rep <- df_for_flagging_leaf_thickness_rep |>
 # reviewing the 'flagged' rows
 outlier_review_leaf_thickness_rep <- data_flagged_leaf_thickness_rep |> 
   filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_lt), plant_nr, leaf_nr,
+  dplyr::select(all_of(group_vars_lt_rep), plant_nr, leaf_nr,
                 thickness_rep,
                 leaf_thickness_mm,
                 lo, hi)
@@ -1376,7 +1505,7 @@ if (all(c("month", "age_class") %in% group_vars_lt_rep)) {
   
   ggplot(data_flagged_leaf_thickness_rep,
          aes(x = month,
-             y = .data[[trait_var_lt]])) +
+             y = .data[[trait_var_lt_rep]])) +
     
     geom_boxplot(outlier.shape = NA) +
     
@@ -1408,40 +1537,32 @@ if (all(c("month", "age_class") %in% group_vars_lt_rep)) {
 
 ```
 
+need to decide what to do with these outliers before moving on to same tests for means
+
 ### Leaf thickness means and IQR-flagging
 
 ```{r}
 #| label: IQR-flagging leaf thickness mean
 #| message: false
 
-#adding column for mean leaf thickness
-
-data <- data |> 
- mutate(
-  mean_leaf_thickness_mm = rowMeans(
-    cbind(leaf_thickness_1_mm, leaf_thickness_2_mm, leaf_thickness_3_mm),
-     na.rm = TRUE
-  ))
-
 # doing the same IQR-flagging as for the reps, but now for the means. 
+# selecting the right dataframe, trait leafes, then the leaf_thickness_mean column
+
 # selecting the right dataframe 
 df_for_flagging_leaf_thickness_mean <- data |>     
   filter(proj_2025 == "Traits") |>      
   dplyr::select(age_class, month, plant_nr, leaf_nr,
-                mean_leaf_thickness_mm) |>   
-  filter(!is.na(mean_leaf_thickness_mm))   # remove missing means
+                leaf_thickness_mean) |>   
+  filter(!is.na(leaf_thickness_mean))   # remove missing means
 
 
 # defining the variable for outlier checking
-trait_var_lt_mean <- "mean_leaf_thickness_mm"
-
+trait_var_lt_mean <- "leaf_thickness_mean"
 
 # defining relevant grouping variables
 group_vars_lt_mean <- c("age_class", "month", "plant_nr")
 
-
 # calculating the Inter Quartile Range (IQR) for mean leaf thickness
-
 data_flagged_leaf_thickness_mean <- df_for_flagging_leaf_thickness_mean |>  
   group_by(across(all_of(group_vars_lt_mean))) |>  
   mutate(
@@ -1460,12 +1581,11 @@ outlier_review_leaf_thickness_mean <- data_flagged_leaf_thickness_mean |>
   filter(flag_iqr) |> 
   dplyr::select(all_of(group_vars_lt_mean),
                 leaf_nr,
-                mean_leaf_thickness_mm,
+                leaf_thickness_mean,
                 lo, hi)
 
 
 # MAKING PLOTS! 
-
 if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
   
   ggplot(data_flagged_leaf_thickness_mean,
@@ -1476,9 +1596,9 @@ if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
     
     # base mean thickness points (all bulk leaves)
     geom_point(
+      aes(colour = factor(plant_nr)),
       alpha = 0.35,
-      position = position_jitter(width = 0.15),
-      colour = "grey50"
+      position = position_jitter(width = 0.15)
     ) +
     
     # flagged mean thickness outliers
@@ -1488,36 +1608,34 @@ if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
       colour = "red",
       size = 2
     ) +
-    
+
     facet_grid(age_class ~ .) +
-    
     labs(
       x = "Month",
       y = "Mean leaf thickness (mm)",
       title = "Mean leaf thickness grouped by Month and Age Class (with IQR flags)"
     ) +
-    
     theme_bw()
 }
 ```
 
+Outliers found!
+
 ### Dry mass IQR-flagging
 
-NEED TO SCALE BY BULK NR LEAVES AT THIS STAGE, ADD COLOUR FOR EACH INDIVIDUAL PLANT
-
 ```{r}
-#| label: IQR-flagging wet mass
+#| label: IQR-flagging dry mass
 #| message: false
 
-# choose the correct dataset for trait checking, here Traits for dry_mass_g 
+# choose the correct dataset for trait checking, here Traits for dry_mass_mean 
 
 df_for_flagging_dry_mass <- data |>     
   filter(proj_2025 == "Traits") |>      
-  filter(!is.na(dry_mass_leaf))             # filtering for any row that DO NOT have NA for dry_mass_g
+  filter(!is.na(dry_mass_mean))             # filtering for any row that DO NOT have NA for dry_mass_mean
 
 
 # defining the variable for outlier checking here 
-trait_var_dm <- "dry_mass_leaf"   # here checking dry mass
+trait_var_dm <- "dry_mass_mean"   # here checking dry mass mean
                                
 
 # defining relevant grouping variables
@@ -1559,10 +1677,10 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
     
     # create the base plots using one point estimate per plant "bulk trait leaf"
     geom_point(
+       aes(colour = factor(plant_nr)),
       alpha = 0.35,
       position = position_jitter(width = 0.15),
-      colour = "grey50"
-    ) +
+          ) +
     
     # Create the outlier points using the flagged column
     geom_point(
@@ -1586,7 +1704,7 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
 }
 ```
 
-Now all of the above (except final_fvfm) also take plant_nr into account when grouping. More outliers now, but that makes sense as the range is probably smaller within each plant.
+Now all of the above (except final_fvfm) also take plant_nr and (except both fvfms) updated bulk_nr (by using created mean columns) into account when flagging.
 
 ### Q-Q plots and skewness tests
 
@@ -1594,9 +1712,9 @@ Testing the spread of the distribution compared to a target/theroetical distribu
 
 General advice:
 
--   If Q-Q plot is strongly curved and skew_proxy/skewness is large ??? transform is worth trying.
+-   If Q-Q plot is strongly curved and skew_proxy/skewness is large, transform is worth trying.
 
--   If Q-Q plot already looks straight and skew measures are small ??? don't transform.
+-   If Q-Q plot already looks straight and skew measures are small, don't transform.
 
 -   If the trait is bounded (like Fv/Fm 0???1), prefer not logging; consider robust methods instead(?).
 
@@ -1606,7 +1724,7 @@ General advice:
 #| label: Q-Q plots 
 #| message: false
 
-qq_trait_var_wm <- "wet_mass_g"  # change as needed
+qq_trait_var_wm <- "wet_mass_mean"  # change as needed
 
 # filter for proj_2025 == Traits, choosing wet mass, calculating 'raw' and 'log1p' version of dataset, then transforming longer for plotting
 df_compare_wm <- data |> 
@@ -1634,14 +1752,14 @@ ggplot(df_compare_wm, aes(sample = value)) +
   theme_bw() +
   labs(
     title = paste("QQ plots (raw vs log1p) for", qq_trait_var_wm),
-    subtitle = "Straighter points ??? closer to normality within each Month ?? age_class",
+    subtitle = "Straighter points means closer to normality within each Month x age_class",
     x = "Theoretical quantiles",
     y = "Sample quantiles"
   )
 
 ```
 
-Looks like most season x age_class group have relatively normal distributions, as there are no big difference between the raw vs. log1p for the plots.
+Looks like most season x age_class group have relatively normal distributions for mean wet mass, as there are no big difference between the raw vs. log1p for the plots. Tried to include plant_nr in the grouping too but it looks horrible - too many facets
 
 ### Skewness test wet mass distribution
 
@@ -1701,17 +1819,179 @@ ggplot(skew_table_wm, # uses table created above
 
 ```
 
-Most month x age classes have a right skew, bot all within -0.07 and 0.3, so nothing major.
+Most month x age classes have a right skew, byt all within -0.15 and 0.3, so nothing major.
+
+### Q-Q plot leaf area distribution
+
+```{r}
+#| label: Q-Q plot leaf area
+#| message: false
+
+#same logic as above
+# set trait variable
+qq_trait_var_la <- "leaf_area_mean"  # change as needed
+
+# filtering for proj_2025 == Traits, calculate raw and log1p, pivot longer for plotting
+df_compare_la <- data |> 
+  filter(proj_2025 == "Traits") |> 
+  filter(!is.na(.data[[qq_trait_var_la]])) |> 
+  mutate(
+    raw = .data[[qq_trait_var_la]],
+    log1p = log1p(raw)  # log1p works for small positive values, not bounded
+  ) |> 
+  pivot_longer(
+    cols = c(raw, log1p),
+    names_to = "version",
+    values_to = "value"
+  )
+
+# creating QQ plots
+ggplot(df_compare_la, aes(sample = value)) +
+  stat_qq(alpha = 0.35) +
+  stat_qq_line() +
+  facet_grid(version + age_class ~ month, scales = "free") +
+  theme_bw() +
+  labs(
+    title = paste("QQ plots (raw vs log1p) for", qq_trait_var_la),
+    subtitle = "Straighter points means closer to normality within each Month x age class",
+    x = "Theoretical quantiles",
+    y = "Sample quantiles"
+  )
+
+```
+
+Looks realtively normal within each month x age class.
+
+### Skewness test leaf area distribution
+
+```{r}
+#| label: skewness test leaf area
+#| message: false
+
+# same logic as above for skew proxy
+skew_table_la <- df_compare_la |> 
+  group_by(month, age_class, version) |> 
+  summarise(
+    n = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    skew_proxy = (mean - median) / sd,
+    .groups = "drop"
+  )
+
+skew_table_la
+
+# plotting skew proxy
+ggplot(skew_table_la, 
+       aes(x = month, 
+           y = skew_proxy, 
+           colour = version)) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(position = position_dodge(width = 0.4), size = 3) +
+  facet_grid(~ age_class) +
+  theme_bw() +
+  labs(
+    title = paste("Skewness comparison (raw vs log1p) for", qq_trait_var_la),
+    y = "Skew Proxy: (mean - median) / sd",
+    colour = "Version"
+  )
+
+```
+
+All within +/- 0.22 from 0, so should be no need for transformation.
+
+### Q-Q plots leaf thickness distribution
+
+Should have resolved any thickness rep problems before this, so think it is safe to use the mean here
+
+```{r}
+#| label: Q-Q plot leaf thickness mean 
+#| message: false
+
+# same logic as above, here choosing column for mean leaf thickness
+qq_trait_var_lt <- "leaf_thickness_mean"
+
+# prepare dataset for Q-Q plot by making raw and log1p
+df_compare_lt <- data |> 
+  filter(proj_2025 == "Traits") |> 
+  filter(!is.na(.data[[qq_trait_var_lt]])) |> 
+  mutate(
+    raw = .data[[qq_trait_var_lt]],
+    log1p = log1p(raw)
+  ) |> 
+  pivot_longer(
+    cols = c(raw, log1p),
+    names_to = "version",
+    values_to = "value"
+  )
+
+# making plots
+ggplot(df_compare_lt, aes(sample = value)) +
+  stat_qq(alpha = 0.35) +
+  stat_qq_line() +
+  facet_grid(version + age_class ~ month, scales = "free") +
+  theme_bw() +
+  labs(
+    title = paste("QQ plots (raw vs log1p) for", qq_trait_var_lt),
+    subtitle = "Straighter points indicate closer to normality within each Month x age_class",
+    x = "Theoretical quantiles",
+    y = "Sample quantiles"
+  )
+
+```
+
+Does not deviate too much from the straight line, so relatively normally distributed.
+
+### Skewness test leaf thickness
+
+```{r}
+#| label: skewness leaf thickness mean 
+#| message: false
+
+# same logic as above for skew proxy
+skew_table_lt <- df_compare_lt |> 
+  group_by(month, age_class, version) |> 
+  summarise(
+    n = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    skew_proxy = (mean - median) / sd,
+    .groups = "drop"
+  )
+
+skew_table_lt
+
+# plotting skew proxy
+ggplot(skew_table_lt, 
+       aes(x = month, 
+           y = skew_proxy, 
+           colour = version)) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(position = position_dodge(width = 0.4), size = 3) +
+  facet_grid(~ age_class) +
+  theme_bw() +
+  labs(
+    title = paste("Skewness comparison (raw vs log1p) for", qq_trait_var_lt),
+    y = "Skew Proxy (mean - median) / sd",
+    colour = "Version"
+  )
+```
+
+Skewness plot shows all points within +/- 0.2 from 0, so no transformation needed. The points for log1p are closer to 0 for most of them though, so it seems like a transformation would have a minor affect at least.
 
 ### Q-Q plot dry mass distribution
 
 ```{r}
-#| label: Q-Q plots 
+#| label: Q-Q plot dry mass 
 #| message: false
 
-qq_trait_var_dm <- "dry_mass_g"  # change as needed
+qq_trait_var_dm <- "dry_mass_mean"  
 
-# filter for proj_2025 == Traits, choosing dry mass, calculating 'raw' and 'log1p' version of dataset, then transforming longer for plotting
+# filter for proj_2025 == Traits, choosing dry mass mean, calculating 'raw' and 'log1p' version of dataset, then transforming longer for plotting
 df_compare_dm <- data |> 
   filter(proj_2025 == "Traits") |> 
   filter(!is.na(.data[[qq_trait_var_dm]])) |> 
@@ -1725,9 +2005,6 @@ df_compare_dm <- data |>
     values_to = "value"
   )
 
-# CREATING Q-Q PLOTS!
-# if the points curve strongly away from the line ??? non-normal (often skew/heavy tails).
-# if log1p is straighter than raw for the same trait then the transformation helps meet normality assumptions.
 
 # plot has faceted month (horizontal) and age_class (vertical)
 ggplot(df_compare_dm, aes(sample = value)) +
@@ -1737,19 +2014,19 @@ ggplot(df_compare_dm, aes(sample = value)) +
   theme_bw() +
   labs(
     title = paste("QQ plots (raw vs log1p) for", qq_trait_var_dm),
-    subtitle = "Straighter points ??? closer to normality within each Month ?? age_class",
+    subtitle = "Straighter points means closer to normality within each Month x age_class",
     x = "Theoretical quantiles",
     y = "Sample quantiles"
   )
 
 ```
 
-Looks like most season x age_class group have relatively normal distributions, as there are no big difference between the raw vs. log1p for the plots.
+Looks like most season x age_class group have relatively normal distributions, but some points quite far off for raw mat jan. not sure of it is too far off though.
 
 ### Skewness test dry mass distribution
 
 ```{r}
-#| label: skewness dry mass 
+#| label: skewness dry mass mean 
 #| message: false
 
 # making skew table
@@ -1767,20 +2044,11 @@ skew_table_dm <- df_compare_dm |>
 
 skew_table_dm
 
-# MAKING SKEWNESS PLOT
-# plot compares age classes (horizontal) with month as x-axis
-# red points are the transformed data (target distribution?), blue are the raw data
-# X axis is the skew-Proxy values (see above notes)
-
 ggplot(skew_table_dm, # uses table created above
        aes(x = month, # create x-axis using month
            y = skew_proxy,
            colour = version)) +  # version here means the transformations
-  
-  # adding a line at 0 to help visualize the positive (right skew) from negative (left skew)
-  
   geom_hline(yintercept = 0, linetype = "dashed") +
-  
   # making the points not overlap by moving apart a little + adjusting size
   geom_point(
     position = position_dodge(width = 0.4),
@@ -1798,113 +2066,11 @@ ggplot(skew_table_dm, # uses table created above
     colour = "Version"
   )
 
-# why is the log1p and raw points right next to each other? since it the data is not 100% normally distributed, shouldnt the point be a little off the logtransformed ones too?
-# edit: figured it out. 
 ```
 
-5 month x age classes have a right skew, 3 have left skew. All within -0.16 and 0.3, so nothing major. Do not think there is need for transformation
+5 month x age classes have a right skew, 3 have left skew. All within -0.14 and 0.35, so nothing major. Do not think there is need for transformation
 
-### Q-Q plots leaf thickness distribution
-
-```{r}
-#| label: Q-Q plots thickness  
-#| message: false
-
-qq_trait_var_lt <- c("leaf_thickness_1_mm", 
-                     "leaf_thickness_2_mm", 
-                     "leaf_thickness_3_mm") # need to include all 3 values for leaf                                               thickness for each row
-
-# filtering for proje_2025 = Traits, pivotting thickness replicates from wide to long, then creating raw/log1p versions
-
-df_compare_lt <- data |> 
-  filter(proj_2025 == "Traits") |> 
-  pivot_longer(
-    cols = all_of(qq_trait_var_lt),
-    names_to = "replicate",
-    values_to = "thickness_mm"
-  ) |> 
-  filter(!is.na(thickness_mm)) |> 
-  mutate(
-    raw = thickness_mm,
-    log1p = log1p(raw)
-  ) |> 
-  pivot_longer(
-    cols = c(raw, log1p),
-    names_to = "version",
-    values_to = "value"
-  )
-
-# MAKING Q-Q PLOTS!
-
-ggplot(df_compare_lt, aes(sample = value)) +
-  stat_qq(alpha = 0.35) +
-  stat_qq_line() +
-  facet_grid(version + age_class ~ month, scales = "free") +
-  theme_bw() +
-  labs(
-    title = "QQ plots (raw vs log1p) for leaf thickness (mm)",
-    subtitle = "Straighter points ??? closer to normality within each Month ?? age_class",
-    x = "Theoretical quantiles",
-    y = "Sample quantiles"
-  )
-```
-
-Looks like most season x age_class group have relatively normal distributions, as there are no big difference between the raw vs. log1p for the plots.
-
-### Skewness test leaf thickness
-
-```{r}
-#| label: skewness test thickness  
-#| message: false
-
-# skewness test leaf thickness
-skew_table_lt <- df_compare_lt |> 
-  group_by(month, age_class, version) |> 
-  summarise(
-    n = sum(!is.na(value)),
-    mean = mean(value, na.rm = TRUE),
-    median = median(value, na.rm = TRUE),
-    sd = sd(value, na.rm = TRUE),
-    skew_proxy = (mean - median) / sd,
-    .groups = "drop"
-  )
-
-skew_table_lt
-
-
-# MAKING SKEWNESS PLOT
-# plot compares age classes (horizontal) with month as x-axis
-# red points are the transformed data (target distribution?), blue are the raw data
-# X axis is the skew-Proxy values (see above notes)
-
-ggplot(skew_table_lt, # see mass code chunks for detailed comments 
-       aes(x = month,
-           y = skew_proxy,
-           colour = version)) +
-  
-  geom_hline(yintercept = 0, linetype = "dashed") +
-  
-  geom_point(
-    position = position_dodge(width = 0.4),
-    size = 3
-  ) +
-  
-  facet_grid(~ age_class) +
-  
-  theme_bw() +
-  
-  labs(
-    title = "Skewness comparison (raw vs log1p) for leaf thickness (mm)",
-    y = "Skew Proxy: (mean - median) / sd",
-    colour = "Version"
-  )
-```
-
-No high values for skew - all values are under 0.6. However there is a wider gap between the points for log1p and raw here than in the skewness tests for mass. Indicates that the log1p transformation has a bigger impact here - ie. there is more skew in the data for thickness.
-
-### Summary of errors/outliers
-
-NEED TO DO THIS OVER AGAIN AFTER BULK_NR OF LEAVES AT EACH STEP IS TAKEN INTO ACCOUNT
+### Summary of errors and outliers
 
 (based on my understanding right now, and that my code works how it is supposed to)
 
@@ -1936,14 +2102,97 @@ NEED TO DO THIS OVER AGAIN AFTER BULK_NR OF LEAVES AT EACH STEP IS TAKEN INTO AC
 
     Would suggest to keep in clean dataset, but remove before analysis if reqired for it to work. know that both NAs come because of missing leaves at time of measurement. Should flag or write a comment w the reason, where is good? not sure yet
 
--   The Q-Q plots and skewness tests (not sure how useful this actually was here) for wet, dry mass and for leaf thickness, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables.
+-   The Q-Q plots and skewness tests, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables based on those.
+
+-   There are quite a few outliers in the iqr-flagging. Most of these seem to be rather close to the iqr though, so think most should stay. Haven't spotted any impossible - rather unlikely or unusual - values.
+
+### Dry mass / wet mass plot
+
+```{r}
+#| label: dry vs wet mass 
+#| message: false
+
+ggplot(data |> filter(proj_2025 == "Traits"),
+       aes(x = wet_mass_mean, y = dry_mass_mean)) +
+  
+  # scatter points
+  geom_point(aes(colour = factor(plant_nr)),
+             size = 2, alpha = 0.7) +
+  
+  # 1:1 reference line
+  geom_abline(slope = 1, intercept = 0,
+              linetype = "dashed", colour = "grey50") +
+  
+  # fitted regression line
+  geom_smooth(method = "lm", se = TRUE, colour = "blue") +
+  
+  # optional: label
+  labs(
+    x = "Wet mass per leaf (g)",
+    y = "Dry mass per leaf (g)",
+    title = "Dry mass vs wet mass per leaf",
+    subtitle = "Dashed line = 1:1 reference, blue line = fitted linear trend",
+    colour = "plant_nr"
+  ) +
+  
+  theme_bw()
+
+# slope on blue line much smaller than the 1:1 refrence = this relationship seems likely as the wet mass should increase more quickly than the dry mass
+```
 
 ### SLA (specific leaf area) calculation
 
 leaf area divided by dry mass - need to remove outliers at earlier stages first. then go through
 
+```{r}
+#| label: calculating SLA 
+#| message: false
+
+# calculating SLA (specific leaf area) by taking mean leaf area pr leaf divided by mean dry mass per leaf
+
+data <- data |> 
+  mutate(
+    sla = ifelse( # making new sla column
+      !is.na(leaf_area_mean) & !is.na(dry_mass_mean) & dry_mass_mean > 0, # excluding rows with NAs or 0s
+      leaf_area_mean / dry_mass_mean, #leaf area divided by dra mass
+      NA_real_
+    )
+  )
+
+# visualization plot for SLA 
+
+# making a scatterplot for SLA, plant_nr on x-axis and weight in SLA on y-axis
+ggplot(data |> filter(proj_2025 == "Traits"),
+       aes(x = factor(plant_nr), y = sla, colour = factor(plant_nr))) +
+  geom_point(size = 2, alpha = 0.8,
+             position = position_jitter(width = 0.15)) +
+  facet_grid(age_class ~ month) +
+  theme_bw() +
+  labs(
+    x = "Plant number",
+    y = "SLA",
+    title = "SLA (specific leaf area) by plant, age class and month"
+  )
+```
+
 ### LDMC (leaf dry matter content) calculation
 
 dry mass divided by wet mass - need to remove outliers at earlier stages first.
+
+```{r}
+#| label: calculating LDMC 
+#| message: false
+
+# calculating LDMC (leaf dry matter content) by taking mean dry mass pr leaf divided by mean wet mass per leaf
+
+data <- data |> 
+  mutate(
+    ldmc = ifelse( # making new ldmc column
+      !is.na(wet_m_mean) & !is.na(dry_mass_mean) & dry_mass_mean > 0, # excluding rows with NAs or 0s
+      leaf_area_mean / dry_mass_mean, #leaf area divided by dra mass
+      NA_real_
+    )
+  )
+```
 
 should plot we mass against dry mass , should give a relatively straight line
