@@ -2206,14 +2206,153 @@ ggplot(data |> filter(!is.na(sla)),
 #| label: SLA iqr flagging 
 #| message: false
 
+# chooseing the correct dataset for trait checking
+df_for_flagging_sla <- data |>     
+  filter(proj_2025 == "Traits") |>      
+  filter(!is.na(sla))
 
 
+# defining the variable for outlier checking
+trait_var_sla <- "sla"
 
+# defining relevant grouping variables
+group_vars_sla <- c("age_class", "month", "plant_nr")
+
+# calculating the (IQR)
+data_flagged_sla <- df_for_flagging_sla |>  
+  filter(!is.na(.data[[trait_var_sla]])) |>  
+  group_by(across(all_of(group_vars_sla))) |>  
+  mutate(
+    q1  = quantile(.data[[trait_var_sla]], 0.25, na.rm = TRUE),
+    q3  = quantile(.data[[trait_var_sla]], 0.75, na.rm = TRUE),
+    iqr = q3 - q1,
+    lo  = q1 - 1.5 * iqr,
+    hi  = q3 + 1.5 * iqr,
+    flag_iqr = .data[[trait_var_sla]] < lo | 
+               .data[[trait_var_sla]] > hi
+  ) |> 
+  ungroup()
+
+# reviewing the flagged rows
+outlier_review_sla <- data_flagged_sla |> 
+  filter(flag_iqr) |> 
+  dplyr::select(all_of(group_vars_sla),
+                leaf_nr,
+                sla,
+                lo, hi)
+
+# MAKING PLOTS
+
+if (all(c("month", "age_class") %in% group_vars_sla)) {
+  
+  ggplot(data_flagged_sla,
+         aes(x = month,
+             y = .data[[trait_var_sla]])) +
+    
+    geom_boxplot(outlier.shape = NA) +
+    
+    geom_point(
+      aes(colour = factor(plant_nr)),
+      alpha = 0.35,
+      position = position_jitter(width = 0.15)
+    ) +
+    
+    geom_point(
+      data = data_flagged_sla |> filter(flag_iqr),
+      position = position_jitter(width = 0.15),
+      colour = "red",
+      size = 2
+    ) +
+    
+    facet_grid(age_class ~ .) +
+    
+    labs(
+      x = "Month",
+      y = "SLA (cm²/g)",
+      title = "SLA grouped by Month and Age Class (with IQR flags)"
+    ) +
+    
+    theme_bw()
+}
+
+# same outlier spotted here
 ```
 
-QQ
+### Q-Q plot + skewness test SLA
 
-Skewness
+```{r}
+#| label: Q-Q and skewness SLA
+#| message: false
+
+qq_trait_var_sla <- "sla" 
+
+# filtering for Traits dataset and calculating raw + log1p versions
+df_compare_sla <- data |> 
+  filter(proj_2025 == "Traits") |> 
+  filter(!is.na(.data[[qq_trait_var_sla]])) |> 
+  mutate(
+    raw = .data[[qq_trait_var_sla]],
+    log1p = log1p(raw)
+  ) |> 
+  pivot_longer(
+    cols = c(raw, log1p),
+    names_to = "version",
+    values_to = "value"
+  )
+
+# plotting the Q-Q plots
+ggplot(df_compare_sla, aes(sample = value)) +
+  stat_qq(alpha = 0.35) +
+  stat_qq_line() +
+  facet_grid(version + age_class ~ month, scales = "free") +
+  theme_bw() +
+  labs(
+    title = paste("QQ plots (raw vs log1p) for", qq_trait_var_sla),
+    subtitle = "Straighter points means closer to normality within each Month x age_class",
+    x = "Theoretical quantiles",
+    y = "Sample quantiles"
+  )
+
+# SKEWNESS
+# calculating skew proxy
+skew_table_sla <- df_compare_sla |> 
+  group_by(month, age_class, version) |> 
+  summarise(
+    n = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    skew_proxy = (mean - median) / sd,
+    .groups = "drop"
+  )
+
+skew_table_sla
+
+# plotting skewness 
+ggplot(skew_table_sla,
+       aes(x = month,
+           y = skew_proxy,
+           colour = version)) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  
+  geom_point(
+    position = position_dodge(width = 0.4),
+    size = 3
+  ) +
+  
+  facet_grid(~ age_class) +
+  
+  theme_bw() +
+  
+  labs(
+    title = paste("Skewness comparison (raw vs log1p) for", qq_trait_var_sla),
+    y = "Skew Proxy: (mean - median) / sd",
+    colour = "Version"
+  )
+
+# NEED TO WAIT WITH INTERPRETING RESULTS HERE, AS OUTLIERS MUST BE REMOVED EARLIER ON FIRST 
+```
 
 ### LDMC (leaf dry matter content) calculation and visualization
 
@@ -2258,8 +2397,155 @@ ggplot(data |> filter(!is.na(ldmc)),
   theme_bw()
 ```
 
-iqr
+### IQR-flagging LDMC
 
-qq
+```{r}
+#| label: LDMC  iqr flagging 
+#| message: false
 
-skewness
+# same logic as above
+
+df_for_flagging_ldmc <- data |>     
+  filter(proj_2025 == "Traits") |>      
+  filter(!is.na(ldmc))
+
+
+trait_var_ldmc <- "ldmc"
+
+
+group_vars_ldmc <- c("age_class", "month", "plant_nr")
+
+
+data_flagged_ldmc <- df_for_flagging_ldmc |>  
+  filter(!is.na(.data[[trait_var_ldmc]])) |>  
+  group_by(across(all_of(group_vars_ldmc))) |>  
+  mutate(
+    q1  = quantile(.data[[trait_var_ldmc]], 0.25, na.rm = TRUE),
+    q3  = quantile(.data[[trait_var_ldmc]], 0.75, na.rm = TRUE),
+    iqr = q3 - q1,
+    lo  = q1 - 1.5 * iqr,
+    hi  = q3 + 1.5 * iqr,
+    flag_iqr = .data[[trait_var_ldmc]] < lo | 
+               .data[[trait_var_ldmc]] > hi
+  ) |> 
+  ungroup()
+
+
+outlier_review_ldmc <- data_flagged_ldmc |> 
+  filter(flag_iqr) |> 
+  dplyr::select(all_of(group_vars_ldmc),
+                leaf_nr,
+                ldmc,
+                lo, hi)
+
+
+# potting 
+if (all(c("month", "age_class") %in% group_vars_ldmc)) {
+  
+  ggplot(data_flagged_ldmc,
+         aes(x = month,
+             y = .data[[trait_var_ldmc]])) +
+    
+    geom_boxplot(outlier.shape = NA) +
+    
+    geom_point(
+      aes(colour = factor(plant_nr)),
+      alpha = 0.35,
+      position = position_jitter(width = 0.15)
+    ) +
+    
+    geom_point(
+      data = data_flagged_ldmc |> filter(flag_iqr),
+      position = position_jitter(width = 0.15),
+      colour = "red",
+      size = 2
+    ) +
+    
+    facet_grid(age_class ~ .) +
+    
+    labs(
+      x = "Month",
+      y = "LDMC",
+      title = "Leaf Dry Matter Content grouped by Month and Age Class (with IQR flags)"
+    ) +
+    
+    theme_bw()
+}
+
+```
+
+### Q-Q plot and skewness LDMC 
+
+```{r}
+#| label: Q-Q and skewness LDMC
+#| message: false
+
+qq_trait_var_ldmc <- "ldmc"
+
+# filtering for Traits dataset and calculating raw + log1p versions
+df_compare_ldmc <- data |> 
+  filter(proj_2025 == "Traits") |> 
+  filter(!is.na(.data[[qq_trait_var_ldmc]])) |> 
+  mutate(
+    raw = .data[[qq_trait_var_ldmc]],
+    log1p = log1p(raw)
+  ) |> 
+  pivot_longer(
+    cols = c(raw, log1p),
+    names_to = "version",
+    values_to = "value"
+  )
+
+# creating  Q-Q plot
+ggplot(df_compare_ldmc, aes(sample = value)) +
+  stat_qq(alpha = 0.35) +
+  stat_qq_line() +
+  facet_grid(version + age_class ~ month, scales = "free") +
+  theme_bw() +
+  labs(
+    title = paste("QQ plots (raw vs log1p) for", qq_trait_var_ldmc),
+    subtitle = "Straighter points means closer to normality within each Month x age_class",
+    x = "Theoretical quantiles",
+    y = "Sample quantiles"
+  )
+
+# SKEWNESS
+# calculating skew proxy 
+skew_table_ldmc <- df_compare_ldmc |> 
+  group_by(month, age_class, version) |> 
+  summarise(
+    n = sum(!is.na(value)),
+    mean = mean(value, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    skew_proxy = (mean - median) / sd,
+    .groups = "drop"
+  )
+
+skew_table_ldmc
+
+# plotting skewness
+ggplot(skew_table_ldmc,
+       aes(x = month,
+           y = skew_proxy,
+           colour = version)) +
+  
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  
+  geom_point(
+    position = position_dodge(width = 0.4),
+    size = 3
+  ) +
+  
+  facet_grid(~ age_class) +
+  
+  theme_bw() +
+  
+  labs(
+    title = paste("Skewness comparison (raw vs log1p) for", qq_trait_var_ldmc),
+    y = "Skew Proxy: (mean - median) / sd",
+    colour = "Version"
+  )
+
+
+```
