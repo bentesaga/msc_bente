@@ -2549,3 +2549,60 @@ ggplot(skew_table_ldmc,
 
 
 ```
+
+```{r}
+
+# leaf area vs dry mass
+# points far off line indicate issues 
+
+ggplot(
+  data |> filter(proj_2025 == "Traits"),
+  aes(x = dry_mass_mean, y = leaf_area_mean)
+) +
+  
+  geom_point(
+    aes(colour = age_class),
+    alpha = 0.6
+  ) +
+  
+  scale_x_log10() +
+  scale_y_log10() +
+  
+  geom_smooth(method = "lm", se = FALSE, colour = "black") +
+  
+  facet_grid(age_class ~ month) +
+  
+  theme_bw() +
+  
+  labs(
+    x = "Dry mass mean (g, log scale)",
+    y = "Leaf area mean (cm², log scale)",
+    title = "QC check: Leaf area vs Dry mass"
+  )
+```
+
+```{r}
+
+# SLA vs LDMC
+# logically these should be negatively correlated, high SLA would mean low LDMC (og motsatt)
+
+ggplot(
+  data |> filter(proj_2025 == "Traits"),
+  aes(x = ldmc, y = sla)
+) +
+  
+  geom_point(
+    aes(colour = age_class),
+    alpha = 0.6
+  ) +
+  
+  facet_grid(age_class ~ month) +
+  
+  theme_bw() +
+  
+  labs(
+    x = "LDMC",
+    y = "SLA (cm²/g)",
+    title = "Trait consistency check: SLA vs LDMC"
+  )
+```
