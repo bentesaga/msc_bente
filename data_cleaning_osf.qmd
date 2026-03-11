@@ -1101,7 +1101,7 @@ data_flagged_fvfm_final2 <- df_for_flagging_fvfm_final |>  # uses the Hot/Cold f
 outlier_review_fvfm_final2 <- data_flagged_fvfm_final2 |> 
   filter(flag_iqr) |> # view only those with a flag for lo or hi 
   # choose which columns you would like to see in the summary df
-  dplyr::select(all_of(group_vars_fin), leaf_nr, all_of(trait_var_fin), lo, hi)
+  dplyr::select(all_of(group_vars_fin), unique_plant_id, leaf_nr, all_of(trait_var_fin), lo, hi)
 
 
 # preparing visualization of the above: facetted by age class, month and temp_exp
@@ -1217,7 +1217,7 @@ data_flagged_fvfm_initial <- df_for_flagging_fvfm_initial |>  # uses the trait f
 outlier_review_fvfm_initial <- data_flagged_fvfm_initial |> 
   filter(flag_iqr) |> # view only those with a flag for lo or hi 
   # choose which columns you would like to see in the summary df
-  dplyr::select(all_of(group_vars_ini), plant_nr, leaf_nr, all_of(trait_var_ini), lo, hi)
+  dplyr::select(all_of(group_vars_ini), unique_plant_id, plant_nr, leaf_nr, all_of(trait_var_ini), lo, hi)
 
 
 # MAKING PLOTS! 
@@ -1320,7 +1320,7 @@ data_flagged_wet_mass <- df_for_flagging_wet_mass |>  # uses the traits filtered
 outlier_review_wet_mass <- data_flagged_wet_mass |> 
   filter(flag_iqr) |> # view only those with a flag for lo or hi 
   # choose which columns you would like to see in the summary df
-  dplyr::select(all_of(group_vars_wm), plant_nr, leaf_nr, all_of(trait_var_wm), lo, hi)
+  dplyr::select(all_of(group_vars_wm), unique_plant_id, plant_nr, leaf_nr, all_of(trait_var_wm), lo, hi)
 
 
 # MAKING PLOTS! 
@@ -1362,6 +1362,7 @@ if (all(c("month", "age_class") %in% group_vars_wm)) {
     theme_bw()
 }
 
+# outlier: DKU2239, mat jan 3, leaf 18. decimal place error on the envelope. 
 ```
 
 Now based on mean wet mass per individual leaf! **Outliers found.**
@@ -1402,7 +1403,7 @@ data_flagged_leaf_area <- df_for_flagging_leaf_area |>
 # reviewing the flagged rows
 outlier_review_leaf_area <- data_flagged_leaf_area |> 
   filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_la), plant_nr, leaf_nr, all_of(trait_var_la), lo, hi)
+  dplyr::select(all_of(group_vars_la), unique_plant_id, plant_nr, leaf_nr, all_of(trait_var_la), lo, hi)
 
 
 # MAKING PLOTS! 
@@ -1619,7 +1620,7 @@ if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
 }
 ```
 
-Outliers found!
+Outliers found! None look problematic.
 
 ### Dry mass IQR-flagging
 
@@ -1661,7 +1662,7 @@ data_flagged_dry_mass <- df_for_flagging_dry_mass |>
 # reviewing the 'flagged' rows
 outlier_review_dry_mass <- data_flagged_dry_mass |> 
   filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_dm), plant_nr, leaf_nr,
+  dplyr::select(all_of(group_vars_dm), unique_plant_id, plant_nr, leaf_nr,
                 all_of(trait_var_dm), lo, hi)
 
 
@@ -1702,6 +1703,8 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
     
     theme_bw()
 }
+
+# outlier: DML0429, bui nov 6, leaf 17. low dry mass value. decimal error on envelope 
 ```
 
 Now all of the above (except final_fvfm) also take plant_nr and (except both fvfms) updated bulk_nr (by using created mean columns) into account when flagging.
@@ -2070,7 +2073,7 @@ ggplot(skew_table_dm, # uses table created above
 
 5 month x age classes have a right skew, 3 have left skew. All within -0.14 and 0.35, so nothing major. Do not think there is need for transformation
 
-### Summary of errors and outliers
+### Summary of errors and true outliers
 
 (based on my understanding right now, and that my code works how it is supposed to)
 
@@ -2088,7 +2091,7 @@ ggplot(skew_table_dm, # uses table created above
      mutate(
      wet_mass_g = if_else(
           wet_mass_g == 0.001338,
-          0.01338,
+          0.01338, # colud change this to NA if that is the correct way to go about it
           wet_mass_g
         )
       )
@@ -2102,9 +2105,51 @@ ggplot(skew_table_dm, # uses table created above
 
     Would suggest to keep in clean dataset, but remove before analysis if reqired for it to work. know that both NAs come because of missing leaves at time of measurement. Should flag or write a comment w the reason, where is good? not sure yet
 
+    After IQR-flagging:
+
+    1\) Final FvFm no impossible values, but some odd patterns. would keep here, but remove before analysis.
+
+    2\) DML0429, bui nov 6, leaf 17. low dry mass value. decimal error on envelope
+
+    ```{r}
+    #| label: correcting wrong dry mass 
+    #| message: false
+
+    # suggestion for how to code correcting decimal typo for DML0429 0.001130 -> 0.01130 
+
+    data <- data |>
+     mutate(
+     dry_mass_g = if_else(
+          dry_mass_g == 0.001130,
+          0.01130, # colud change this to NA if that is the correct way to go about it
+          dry_mass_g
+        )
+      )
+    ```
+
 -   The Q-Q plots and skewness tests, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables based on those.
 
 -   There are quite a few outliers in the iqr-flagging. Most of these seem to be rather close to the iqr though, so think most should stay. Haven't spotted any impossible - rather unlikely or unusual - values.
+
+### Adding potential outlier column 
+
+```{r}
+#| label: true outliers and remarks 
+#| message: false
+
+# making new columns 
+data$potential_outlier <- NA  # making new column ready for manual entry
+
+#could maybe use something like this to get all the outliers flagged in one clumn 
+# find all objects starting with "outlier_review"
+all_outlier_review_dfs <- ls(pattern = "^outlier_review")
+
+# combine all the unique_plant_id values 
+all_outlier_ids <- unique(unlist(
+  lapply(all_outlier_review_dfs, function(x) get(x)$unique_plant_id)
+))
+
+```
 
 ### Dry mass / wet mass plot
 
@@ -2556,7 +2601,10 @@ ggplot(skew_table_ldmc,
 # points far off line indicate issues 
 
 ggplot(
-  data |> filter(proj_2025 == "Traits"),
+  data |> filter(
+      proj_2025 == "Traits", 
+      !envelope_id %in% c("DML0429", "DKU2239")  # exclude these two as I already know that they are problematic. 
+    ),
   aes(x = dry_mass_mean, y = leaf_area_mean)
 ) +
   
@@ -2587,22 +2635,17 @@ ggplot(
 # logically these should be negatively correlated, high SLA would mean low LDMC (og motsatt)
 
 ggplot(
-  data |> filter(proj_2025 == "Traits"),
+  data |> 
+    filter(!envelope_id %in% c("DML0429", "DKU2239")),  # exclude problematic points as I already know these are messing with the plot
   aes(x = ldmc, y = sla)
 ) +
-  
-  geom_point(
-    aes(colour = age_class),
-    alpha = 0.6
-  ) +
-  
+  geom_point(aes(colour = age_class), alpha = 0.6) +
   facet_grid(age_class ~ month) +
-  
   theme_bw() +
-  
   labs(
     x = "LDMC",
     y = "SLA (cm²/g)",
     title = "Trait consistency check: SLA vs LDMC"
-  )
+  ) 
+  
 ```
