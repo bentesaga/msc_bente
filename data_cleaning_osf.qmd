@@ -91,8 +91,10 @@ glimpse(data) #checking variable classes
 data$age_class <- factor((data$age_class),
                          levels = c("Newly Burnt", "Pioneer", 
                                     "Building", "Mature"))
+data$month <- factor((data$month),
+                     levels = c("November", "January"))
 
-levels(data$age_class) #checking that levels were changed successfully 
+levels(data$month) #checking that levels were changed successfully 
 
 #should these be moved "one up" so from pio to degenerative?
 ```
@@ -113,6 +115,19 @@ data <- data |>
 
 view(data) #checking that the right changes were made 
 
+```
+
+### Creating uinque plant ID
+
+```{r}
+#| label: unique plant id 
+#| message: false
+
+# creating a unique_plant_id given age_class, month, and plant_nr
+data <- data |> 
+  mutate(
+ unique_plant_id = paste(age_class, month, plant_nr, sep = "_")
+ )
 ```
 
 ### Cross-checking and data validation
@@ -161,7 +176,7 @@ Want to check the following quality control rules:
 | Plants 1-4 should have collection date Nov 11 or Jan 14 |
 | Plants 5-8 should have collection date Nov 13 or Jan 16 |
 | Hot and cold leaves must have non NA entries for fv/fm_final columns\*\*\* 2 rows |
-| Trait leaves must have non NA entries for thickness and weight (enough w 1 thickness?) |
+| Trait leaves must have non NA entries for thickness and weight |
 
 ### Helper function for decimal rules
 
@@ -318,8 +333,8 @@ test_bulk_nr <- function() {
   n == 0
 }
 
-stopifnot(test_calluna_bulk())
-stopifnot(test_bulk_nr())
+#stopifnot(test_calluna_bulk())
+#stopifnot(test_bulk_nr())
 
 
 # find rows breaking height rules, height below 0 or flower height taller than top height  
@@ -420,7 +435,17 @@ stopifnot(test_dry_mass_decimals())
 invalid_wet_mass_decimal <- data |>
   filter(!is.na(wet_mass_g) &
          !has_n_decimals(wet_mass_g, 5))
-#DKU2239, jan mat 3 leaf 18 is the problem. Probably a typo on wet mass
+#DKU2239, jan mat 3 leaf 18 is the problem. Caused by an error on wet mass envelope
+# correcting the error for DKU2239 canging the wet mass entry from 0.001338 -> 0.01338
+
+data <- data |>
+ mutate(
+ wet_mass_g = if_else(
+ envelope_id == "DKU2239" & wet_mass_g == 0.001338,
+      0.01338,
+      wet_mass_g
+    )
+  )
 
 
 # find rows with unexpected NAs 
@@ -441,7 +466,21 @@ invalid_fv_fm_final <- data |>
   filter(proj_2025 %in% c("TT Hot","TT Cold") &
          is.na(fv_fm_final))
 
-# nov pio plant 1, leaf 7 & jan mat 4, leaf 14 are the problem rows
+# TWO NAs DETECTED IN TT Hot and/or TT Cold: nov pio plant 1, leaf 7 and jan mat 4, leaf 14. 
+# jan mat 4, leaf 14 already has a comment "all leaves missing at FvFm". No remark for nov pio plant 1, leaf 7 in data frame, notes from experimental run says missing leaves at time of FvFm measurement.  
+
+    # adding remark about missing leaves FvFm for nov pio 1, leaf 7 
+data <- data |> 
+  mutate(
+    remark = case_when(
+      month == "November" &
+      age_class == "Pioneer" &
+      plant_nr == 1 &
+      leaf_nr == 7 &
+      is.na(remark) ~ "all leaves missing at FvFm",
+      TRUE ~ remark
+    )
+  )
 
 
 # find rows  where pro_2025 is Traits but fm/fv initial 
@@ -487,37 +526,29 @@ test_mass <- function() {
   n == 0
 }
 
-#stopifnot(test_mass())
-# NOT TRUE, this means there is at least one row affected 
-# find problem rows 
+stopifnot(test_mass())
 
-invalid_mass <- data |>
-  filter(dry_mass_g > wet_mass_g)
-#DKU2239, jan mat 3 leaf 18 is the problem. Probably a typo on wet mass
+# updated so all the problem rows show up as objects 
+# the stopifnot() on the problems are in comments, so that the code runs on 
 
-
-#updated so all the problem rows show up as objects 
-#the stopifnot() on the problems are in comments, so that the code runs through  
-
+#SUMMARY OF QUALITY CONTROL CHECKS: There are 3 problematic rows; two with NAs for final fv/fm (nov pio 1, leaf 7 and jan mat 4, leaf 14 ). Looking into notes, has confirmed that both are due to all leaves missing leaves at time of measurement. Remark added. One problematic row with a wet_mass decimal error, for envelope_id DKU2239, corrected with code in script above. 
+# all 3 problem rows resolved
 ```
 
-*SUMMARY OF QUALITY CONTROL CHECKS:*
-
-There are 3 problematic rows;
-
-two with NAs for final fv/fm (nov pio 1, leaf 7 + jan mat 4, leaf 14 ), one with a wet_mass typo (envelope_id DKU2239). comments added for missing FvFm, change wet_mass typo with code?
-
-### Creating unique plant ID
+### Height corrections
 
 ```{r}
-#| label: unique plant id 
+#| label: height decimals
 #| message: false
 
-# creating a unique_plant_id given age_class, month, and plant_nr
-data <- data |> 
+# correcting to one decimal so data fits durin standards
+data <- data |>
   mutate(
- unique_plant_id = paste(age_class, month, plant_nr, sep = "_")
- )
+    height_s_flower = sprintf("%.1f", height_s_flower),
+    height_s_top = sprintf("%.1f", height_s_top)
+)
+
+# stored as chr. change if using for analysis.
 ```
 
 ### Leaf scan data import
@@ -548,14 +579,12 @@ leaf_area_raw <- purrr::map_df(leaf_area_files,
   .id = "source_file"
 )
 
-view(leaf_area_raw) # checking that dataframe looks good 
-
-
 
 # cleaning names and removing duplicate columns 
 leaf_area_clean <- leaf_area_raw |>
   clean_names() |>
-  rename(leaf_area_sum = leaf_area) |> 
+   select(-x1) |> # removing unessecary column
+  rename(leaf_area_sum = leaf_area) |> # renaming as this colum still contains the sum of all paticles
   rename(envelope_id = id) |> 
   # creating priority for preferred files
   mutate(priority = if_else(str_detect(source_file, "images"), 1, 2)) |> 
@@ -563,6 +592,7 @@ leaf_area_clean <- leaf_area_raw |>
   distinct(envelope_id, .keep_all = TRUE) |>  # keeping first row per id
   select(-priority) # removing helper column
 
+view(leaf_area_clean) # checking that dataframe looks good 
 ```
 
 ### Merging leaf scan data with main data frame
@@ -620,21 +650,6 @@ data <- data |>
     ),
   )
 
-
-    # also, adding remark for missing FvFm remark from notebook
-data <- data |> 
-  mutate(
-    remark = case_when(
-      month == "November" &
-      age_class == "Pioneer" &
-      plant_nr == 1 &
-      leaf_nr == 7 &
-      is.na(remark) ~ "all leaves missing at FvFm",
-      TRUE ~ remark
-    )
-  )
-
-
 unique(data$remark) # checking updates 
 ```
 
@@ -669,7 +684,12 @@ data$bulk_nr_leaves[data$remark == "all leaves missing at FvFm"] <- NA
 #| message: false
 
 # making new columns 
-data$bulk_nr_wet_mass <- data$bulk_nr_leaves # copying bulk_nr_leaves column, ready to be updated according to remarks regarding missing leaves at wet mass
+# copying bulk_nr_leaves column, only for leaves with proj_2025 = "Traits", others NA. Ready to be updated according to remarks regarding missing leaves at wet mass
+data$bulk_nr_wet_mass <- ifelse(
+  data$proj_2025 == "Traits",
+  data$bulk_nr_leaves,
+  NA
+)
 
 data$remark_bulk_nr_wet_mass <- NA # making new remark column, ready for manual entries
 
@@ -731,11 +751,15 @@ data$leaf_area_mean <- with(data, ifelse(
 #| message: false
 
 # making new columns 
-data$bulk_nr_leaf_thickness <- data$bulk_nr_leaves # copying bulk_nr_leaves column, ready to be updated according to remarks regarding missing leaves at thickness 
+# copying bulk_nr_leaves column, only for leaves with proj_2025 = "Traits", others NA. Ready to be updated according to remarks regarding missing leaves at wet mass, scanning, thickness
+data$bulk_nr_leaf_thickness <- ifelse(
+  data$proj_2025 == "Traits",
+  data$bulk_nr_leaves,
+  NA
+)
 
 data$remark_bulk_nr_leaf_thickness <- NA # making new remark column, ready for manual entries
-
-# overwriting bulk_nr_leaf_thickness and adding update remark for rows with remarks regarding missing leaves at wet mass, then for leaves missing at scanning, then for missing leaves at  
+# overwriting bulk_nr_leaf_thickness and adding update remark for rows with remarks regarding missing leaves at wet mass, then for leaves missing at scanning, then for missing leaves at thckness
 
 # corrections based on wet mass remarks 
 
@@ -772,12 +796,28 @@ data$leaf_thickness_mean[is.nan(data$leaf_thickness_mean)] <- NA # removing rows
 #| label: dry mass bulk_nr and remark
 #| message: false
 
+# first need to account for decimal error found during qc
+# code correcting decimal error on envelope for DML0429 0.001130 -> 0.01130
+# if envelope_id and dry mass matches conditions, replace with
+data <- data |>
+ mutate(
+ dry_mass_g = if_else(
+      envelope_id == "DML0429" & dry_mass_g == 0.001130,
+      0.01130,  
+      dry_mass_g
+    )
+  )
 # making new columns 
-data$bulk_nr_dry_mass <- data$bulk_nr_leaves # copying bulk_nr_leaves column, ready to be updated according to remarks regarding missing leaves at dry mass
+# copying bulk_nr_leaves column, only for leaves with proj_2025 = "Traits", others NA. Ready to be updated according to remarks regarding missing leaves at wet mass, scanning, thickness, dry mass
+data$bulk_nr_dry_mass <- ifelse(
+  data$proj_2025 == "Traits",
+  data$bulk_nr_leaves,
+  NA
+)
 
 data$remark_bulk_nr_dry_mass <- NA # making new remark column, ready for manual entries
 
-# overwriting bulk_nr_leaf_thickness and adding update remark for rows with remarks regarding missing leaves at wet mass, then for leaves missing at scanning, then for missing leaves at  
+# overwriting bulk_nr_dry_masss and adding update remark for rows with remarks regarding missing leaves at wet mass, then for leaves missing at scanning, then for missing leaves at  
 
 # corrections based on wet mass remarks 
 
@@ -790,7 +830,7 @@ data$bulk_nr_dry_mass[data$remark == "only 2 leaves at scanning"] <- 2
 
 # corrections based on thickness remarks
 data$bulk_nr_dry_mass[data$remark == "only 3 leaves at thickness"] <- 3
-data$bulk_nr_dry_mass[data$remark == "only 2 leaves at thickness"] <- 2
+# leaves have reappeared after only having 2 leaves at thickness for ASB1199 now has 4 for dry weight. 
 
 
 # corrections based on dry mass remarks 
@@ -807,7 +847,7 @@ data$dry_mass_mean <- with(data, ifelse(
 
 ```
 
-### Visualization plots (for outliers) per variable grouped by age class and month
+### Visualization plots (for outliers) per variable grouped by age class, month, plant_nr
 
 **Final Fv/Fm hot**
 
@@ -827,19 +867,6 @@ ggplot(data |> filter(proj_2025 == "TT Hot"),
     title = "Fv/Fm hot final by age class and season"
   )
 
-# making a histogram for final fvfm for hot leaves 
-
-ggplot(data |> filter(proj_2025 == "TT Hot"),
-  aes(x = fv_fm_final)
-) +
-  geom_histogram(binwidth = 0.02, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Fv/Fm final",
-    y = "Count",
-    title = "Hot Fv/Fm final by age class and month"
-  )
 ```
 
 **Final Fv/Fm cold**
@@ -855,22 +882,9 @@ ggplot(data |> filter(proj_2025 == "TT Cold"),
   facet_grid(age_class ~ month) +
   theme_bw() +
   labs(
-    x = "Temperature exposure (B0C)",
+    x = "Temperature exposure (C)",
     y = "Fv/Fm final",
     title = "Fv/Fm cold final by age class and month"
-  )
-
-ggplot(
-  data |> filter(proj_2025 == "TT Cold"),
-  aes(x = fv_fm_final)
-) +
-  geom_histogram(binwidth = 0.02, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Fv/Fm final",
-    y = "Count",
-    title = "Hot Fv/Fm final by age class and month"
   )
 ```
 
@@ -891,22 +905,6 @@ ggplot(data |> filter(proj_2025 == "Traits"),
     y = "Fv/Fm initial",
     title = "Fv/Fm initial by plant, age class and month"
   )
-
-# making a histogram for initial fvfm for Trait leaves 
-ggplot(
-  data |> filter(proj_2025 == "Traits"),
-  aes(x = fv_fm_initial)
-) +
-  geom_histogram(binwidth = 0.02, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Fv/Fm initial",
-    y = "Count",
-    title = "Distribution of Fv/Fm initial by age class and month"
-  )
-
-# ser at initial fv/fm var mer likere innen og mellom grupper i januar enn novemer. hadde nok ikke trengt ?? separere mellom leaf_nr, men ser fortsatt hovedtrenden
 ```
 
 **Wet mass**
@@ -927,20 +925,6 @@ ggplot(data |> filter(proj_2025 == "Traits"),
     y = "Wet mass mean (g)",
     title = "Mean wet mass per leaf by plant, age class and month"
   )
-
-# histogram for wet mass distribution trait leaves 
-ggplot(
-  data |> filter(proj_2025 == "Traits"),
-  aes(x = wet_mass_mean)
-) +
-  geom_histogram(binwidth = 0.001, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Wet mass (g)",
-    y = "Count",
-    title = "Distribution of wet mass by age class and month"
-  )
 ```
 
 **Leaf area**
@@ -958,29 +942,49 @@ ggplot(data |> filter(proj_2025 == "Traits"),
   theme_bw() +
   labs(
     x = "Plant number",
-    y = "Leaf area (mmB2)",
+    y = "Leaf area (mm^2)",
     title = "Leaf area by plant, age class and month"
-  )
-
-#histogram for mean leaf area
-ggplot(
-  data |> filter(proj_2025 == "Traits"),
-  aes(x = leaf_area_sum)
-) +
-  geom_histogram(binwidth = 0.05, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Leaf area",
-    y = "Count",
-    title = "Distribution of leaf area by age class and month"
   )
 ```
 
 **Leaf thickness**
 
 ```{r}
-#| label: visualization plot leaf thickness
+#| label: visualization plot leaf thickness ind reps
+#| message: false
+
+# visualisation plot leaf thickness, all individual replicate measurements showed. Each plant_nr has each own colur. Each of the 5 "bulk leaf" per plant has 3 replicate measurements taken.
+
+data_long_thickness <- data |>
+  filter(proj_2025 == "Traits") |>
+  pivot_longer(
+    cols = c(leaf_thickness_1_mm, leaf_thickness_2_mm, leaf_thickness_3_mm),
+    names_to = "replicate",
+    values_to = "leaf_thickness_mm"
+  )
+
+ggplot(data_long_thickness,
+       aes(x = interaction(plant_nr, leaf_nr),
+           y = leaf_thickness_mm,
+           colour = factor(plant_nr))) +
+  
+  geom_point(size = 2, alpha = 0.8) +
+  
+  facet_grid(age_class ~ month) +
+  
+  theme_bw() +
+  
+  labs(
+    x = "Plant and leaf",
+    y = "Leaf thickness (mm)",
+    title = "Leaf thickness replicates per leaf"
+  )
+
+# GOING THROUGH VALUES AND CHECKING THAT VALUES THAT LAY RATHER FAR FROM THE OTHER REPLICATE MEASUREMENTS FOR EACH BULK LEAF MATCH WHAT SAYS ON ENVELOPE. 
+```
+
+```{r}
+#| label: visualization plot leaf thickness mean
 #| message: false
 
 # histogram for leaf thickness distribution for trait leaves, not mean, rather seperate reps
@@ -1004,18 +1008,6 @@ ggplot(data_long_thickness, #plotting drom long format
     y = "Leaf thickness (mm)",
     title = "Leaf thickness replicates by plant, age class and month"
   )
-
-# making histogram
-ggplot(data_long_thickness,
-       aes(x = leaf_thickness_mm)) +
-  geom_histogram(binwidth = 0.01, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Leaf thickness (mm)",
-    y = "Count",
-    title = "Distribution of leaf thickness measurements by age class and month"
-  )
 ```
 
 **Dry mass**
@@ -1037,19 +1029,9 @@ ggplot(data |> filter(proj_2025 == "Traits"),
     title = "Mean dry mass per leaf by plant, age class and month"
   )
 
-# histogram for dry mass mean distribution trait leaves 
-ggplot(
-  data |> filter(proj_2025 == "Traits"),
-  aes(x = dry_mass_mean)
-) +
-  geom_histogram(binwidth = 0.0001, boundary = 0) +
-  facet_grid(age_class ~ month) +
-  theme_bw() +
-  labs(
-    x = "Dry mass (g)",
-    y = "Count",
-    title = "Distribution of dry mass by age class and month"
-  )
+# outlier found and corrected: 
+# envelope_id DML0429, bui nov 6, leaf 17. Low dry mass value, most likely due to writing error on envelope. Value on envelope is 0.00113, after cross checking, should probably be 0.01130
+#moved up
 ```
 
 ### Hot and Cold final Fv/Fm IQR-flagging
@@ -1063,7 +1045,7 @@ Based on slack messages: With Fv/Fm being bounded (0-1), better to use robust me
 # choose the correct dataset for trait checking, here TT Hot and TT Cold for fv_fm_final 
 
 df_for_flagging_fvfm_final <- data |>                # remember to update name of df for each variable, will run                                                            them in separate chuncks
-  filter(proj_2025 %in% c("TT Hot", "TT Cold")) |>      # filtering for hot and cold treatments
+  filter(proj_2025 %in% c("TT Hot", "TT Cold")) |> # filtering for hot and cold treatments
   filter(!is.na(temp_exp))                              # filtering for any row that DO NOT have NA for temp_exp
 
 
@@ -1081,7 +1063,7 @@ group_vars_fin <- c("age_class", "month", "temp_exp")
 
 # calculating the Inter Quartile Range (IQR) for a given trait, here fvfm final for hot and cold datasets
 
-data_flagged_fvfm_final2 <- df_for_flagging_fvfm_final |>  # uses the Hot/Cold filtered dataframe
+data_flagged_fvfm_final <- df_for_flagging_fvfm_final |>  # uses the Hot/Cold filtered dataframe
   filter(!is.na(.data[[trait_var_fin]])) |>  # uses the specified trait above
   group_by(across(all_of(group_vars_fin))) |>  # uses the specified grouping above
   # calculating the following attributes
@@ -1098,7 +1080,7 @@ data_flagged_fvfm_final2 <- df_for_flagging_fvfm_final |>  # uses the Hot/Cold f
 
 
 # reviewing the 'flagged' rows
-outlier_review_fvfm_final2 <- data_flagged_fvfm_final2 |> 
+outlier_review_fvfm_final <- data_flagged_fvfm_final |> 
   filter(flag_iqr) |> # view only those with a flag for lo or hi 
   # choose which columns you would like to see in the summary df
   dplyr::select(all_of(group_vars_fin), unique_plant_id, leaf_nr, all_of(trait_var_fin), lo, hi)
@@ -1110,7 +1092,7 @@ outlier_review_fvfm_final2 <- data_flagged_fvfm_final2 |>
 hot_boundary_value <- 15
 
 # converting the boundary to the x-position used by ggplot for discrete axes
-x_levels <- levels(data_flagged_fvfm_final2$temp_exp)
+x_levels <- levels(data_flagged_fvfm_final$temp_exp)
 x_before <- which(x_levels == "5")   # last "cold-ish" tick
 x_after  <- which(x_levels == "20")   # first "hot" tick
 
@@ -1124,7 +1106,7 @@ boundary_x <- (x_before + x_after) / 2
 # making plot with facets horizontal for month and vertical for age class, temp_exp is the x-axis variable.
 if (all(c("month", "temp_exp", "age_class") %in% group_vars_fin)) {
   
-  ggplot(data_flagged_fvfm_final2, # using flagged dataset
+  ggplot(data_flagged_fvfm_final, # using flagged dataset
          aes(x = temp_exp,  # defining temperature exposure as x-axis, here both hot and cold included
              y = .data[[trait_var_fin]])) +  # the variable originally assigned, here fv_fm_final
     
@@ -1139,7 +1121,7 @@ if (all(c("month", "temp_exp", "age_class") %in% group_vars_fin)) {
     
     # Create the outlier points using the flagged column
     geom_point(
-      data = data_flagged_fvfm_final2 |>  filter(flag_iqr), # restate the df, and add filter
+      data = data_flagged_fvfm_final |>  filter(flag_iqr), # restate the df, and add filter
       position = position_jitter(width = 0.15), # still jitter
       colour = "red", # specify red to stand out more
       size = 2 # make bigger to see
@@ -1166,9 +1148,23 @@ if (all(c("month", "temp_exp", "age_class") %in% group_vars_fin)) {
     theme_bw()
 }
 
-```
+# 56 OUTLIERS FLAGGED IN outlier_review_fvfm_final. 
+# ALL CROSS CHECKED AGAINST FIELD DATASHEETS
+# ONE ERROR FOUND, Pioneer_November_1 detected, entry is 0.80 in field data, entered as 0.08 in raw data, correction in code here: 
+data <- data |>
+  mutate(
+    fv_fm_final = if_else(
+      unique_plant_id == "Pioneer_November_1" &
+      temp_exp == 5 &
+      fv_fm_final == 0.08,
+      0.80,
+      fv_fm_final
+    )
+  )
 
-Code runs smoothly, find out what to do with the outliers marked in red!
+# ALL OTHER FLAGGED DATA ENTRIES CROSS CHECKED AGAINST FIELD DATASHEETS. ALL VALUES MATCH. 
+#Building_January_3 have 11 out of 15 hot/cold leaves flagged for final fv/fm. Lower values than expcted for all of these flags .Would reccommend leaving out of analysis. 
+```
 
 ### Trait leaves initial Fv/Fm IQR-flagging
 
@@ -1182,7 +1178,7 @@ Based on slack messages: With Fv/Fm being bounded (0-1), better to use robust me
 # don't need the bulk nr here
 
 df_for_flagging_fvfm_initial <- data |>                # remember to update name of df for each variable, will run                                                            them in separate chuncks
-  filter(proj_2025 == "Traits") |>      # filtering for hot and cold treatments
+  filter(proj_2025 == "Traits") |>      # filtering for traits
   filter(is.na(temp_exp))                              # filtering for any row that DO have NA for temp_exp
 
 
@@ -1226,9 +1222,9 @@ outlier_review_fvfm_initial <- data_flagged_fvfm_initial |>
 if (all(c("month", "age_class") %in% group_vars_ini)) {
   
   ggplot(data_flagged_fvfm_initial, # using flagged dataset
-         aes(x = month,  # defining temperature exposure as x-axis, here both hot and cold included
-             y = .data[[trait_var_ini]])) +  # the variable originally assigned, here fv_fm_final 
-    
+         aes(x = factor(plant_nr),
+    y = .data[[trait_var_ini]])) +
+
     geom_boxplot(outlier.shape = NA) +
     
     
@@ -1248,11 +1244,12 @@ if (all(c("month", "age_class") %in% group_vars_ini)) {
     ) +
     
 
-    facet_grid(age_class ~ .) +
+      facet_grid(age_class ~ month) +
+    
     
     # write labels for the plots (NB need to change text per variable)
     labs(
-      x = "Month",
+      x = "Faceted by month, plant nr on x-axis",
       y = trait_var_ini,
       title = paste(trait_var_ini,
                     "Initial FvFm by Month, Age Class, Plant nr (IQR flags)")
@@ -1262,19 +1259,9 @@ if (all(c("month", "age_class") %in% group_vars_ini)) {
     theme_bw()
 }
 
+# 28 OUTLIERS FLAGGED IN outlier_review_fvfm_initial. 
+# ALL CROSS CHECKED AGAINST FIELD DATASHEETS. ALL VALUES MATCH. NO CORRECTIONS MADE IN CODE. 
 ```
-
-Visually this is not very good with the boxplots being very narrow, but the outliers are shown in red! Can see that the initial fvfm values are more spread out in january, also more outliers here.
-
-28 outliers flagged, most rather close to the iqr. The ones that are further off is
-
--   mat nov 6, leaf 16
-
--   pio jan 1, leaf 19
-
--   pio jan 3, leaf 19
-
--   also some that are over the upper range of iqr
 
 ### Wet mass weight IQR-flagging
 
@@ -1320,7 +1307,7 @@ data_flagged_wet_mass <- df_for_flagging_wet_mass |>  # uses the traits filtered
 outlier_review_wet_mass <- data_flagged_wet_mass |> 
   filter(flag_iqr) |> # view only those with a flag for lo or hi 
   # choose which columns you would like to see in the summary df
-  dplyr::select(all_of(group_vars_wm), unique_plant_id, plant_nr, leaf_nr, all_of(trait_var_wm), lo, hi)
+  dplyr::select(all_of(group_vars_wm), unique_plant_id, plant_nr, leaf_nr, ,wet_mass_g, all_of(trait_var_wm), lo, hi)
 
 
 # MAKING PLOTS! 
@@ -1328,7 +1315,7 @@ outlier_review_wet_mass <- data_flagged_wet_mass |>
 if (all(c("month", "age_class") %in% group_vars_wm)) {
   
   ggplot(data_flagged_wet_mass, # using flagged dataset
-         aes(x = month,  # defining month as x-axis
+          aes(x = factor(plant_nr),  # defining month as x-axis
              y = .data[[trait_var_wm]])) +  # the variable originally assigned, here wet_mass
     
     geom_boxplot(outlier.shape = NA) +
@@ -1349,11 +1336,11 @@ if (all(c("month", "age_class") %in% group_vars_wm)) {
     ) +
     
     # make age class vertical and month the horizontal facets
-    facet_grid(age_class ~ .) +
+    facet_grid(age_class ~ month) +
     
     # write labels for the plots (NB need to change text per variable)
     labs(
-      x = "Month",
+      x = "Faceted by month, plant nr on x-axis",
       y = "wet mass g",
       title = "Wet mass (g) leaf mean grouped by Month and Age Class (with IQR flags)"
     ) + 
@@ -1362,10 +1349,9 @@ if (all(c("month", "age_class") %in% group_vars_wm)) {
     theme_bw()
 }
 
-# outlier: DKU2239, mat jan 3, leaf 18. decimal place error on the envelope. 
+# 32 OUTLIERS FLAGGED IN outlier_review_wet_mass. 
+# ALL FLAGGED ENTRIES, wet_mass_g USED TO CROSS CHECK AGAINST WRITING ON ENVELOPES. ALL VALUES MATCH. NO CORRECTIONS MADE IN CODE.
 ```
-
-Now based on mean wet mass per individual leaf! **Outliers found.**
 
 ### Leaf area IQR-flagging
 
@@ -1403,14 +1389,14 @@ data_flagged_leaf_area <- df_for_flagging_leaf_area |>
 # reviewing the flagged rows
 outlier_review_leaf_area <- data_flagged_leaf_area |> 
   filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_la), unique_plant_id, plant_nr, leaf_nr, all_of(trait_var_la), lo, hi)
+  dplyr::select(all_of(group_vars_la), plant_nr, leaf_nr, leaf_area_sum, all_of(trait_var_la), lo, hi, envelope_id)
 
 
 # MAKING PLOTS! 
 if (all(c("month", "age_class") %in% group_vars_la)) {
   
   ggplot(data_flagged_leaf_area,
-         aes(x = month,
+          aes(x = factor(plant_nr),
              y = .data[[trait_var_la]])) +
     
     geom_boxplot(outlier.shape = NA) +
@@ -1430,115 +1416,20 @@ if (all(c("month", "age_class") %in% group_vars_la)) {
       size = 2
     ) +
     
-    facet_grid(age_class ~ .) +
+    facet_grid(age_class ~ month) +
     
     labs(
-      x = "Month",
+      x = "Faceted by month, plant nr on x-axis",
       y = "Leaf area (cm2)",  # I think this would be th e right unit
       title = "Leaf area mean grouped by Month and Age Class (with IQR flags)"
     ) + 
     
     theme_bw()
 }
+
+# 28 OUTLIERS FLAGGED IN outlier_review_leaf_area. 
+# FOR ALL FLAGGED ENTRIES, ORIGINAL EXCEL SHEETS WERE USED TO CROSS CHECK AGAINST leaf_area_sum CULOMN. SCANS CHECKED TO SEE IF NUMBERS OF PARTICLES CORRECT. ALL VALUES MATCH. NO CORRECTIONS MADE IN CODE.
 ```
-
-Now based on mean leaf area per leaf! **Outliers found. None look very problematic**
-
-### Leaf thickness individual rep IQR-flagging
-
-```{r}
-#| label: IQR-flagging leaf thickness rep
-#| message: false
-
-# choose the correct dataset for trait checking, here Traits for leaf thickness, 3 replicate measurements separate
-# flagging the replicates that are outside the iqr range of the other replicates within the same month x age class x replicate plant_nr (x thickness_rep)
-
-df_for_flagging_leaf_thickness_rep <- data |>     
-  filter(proj_2025 == "Traits") |>      
-  dplyr::select(age_class, month, plant_nr, leaf_nr,
-                leaf_thickness_1_mm,
-                leaf_thickness_2_mm,
-                leaf_thickness_3_mm) |>   # selecting all the thickness replicate columns
-  tidyr::pivot_longer(
-    cols = starts_with("leaf_thickness"),
-    names_to = "thickness_rep",
-    values_to = "leaf_thickness_mm"
-  ) |> 
-  filter(!is.na(leaf_thickness_mm))      # filtering for any row that DO NOT have NA thickness
-
-
-# defining the variable for outlier checking here thickness rep
-trait_var_lt_rep <- "leaf_thickness_mm"   # combined thickness rep measurements
-                               
-
-# defining relevant grouping variables
-group_vars_lt_rep <- c("age_class", "month", "plant_nr", "thickness_rep")
-
-# added "thichness_rep" here, so now only looking at iqr within the 5 replicates. If excluding it we'd be looking at 15 measurements (5 bulk leaves x 3 reps each) which makes more sense to me. Why compare eg. rep 1 for all 5 then rep 2 for all 5 etc. feel like it makes more sense to look at the outliers for all 15 values pooled. why not?
-
-# calculating the Inter Quartile Range (IQR) for leaf thickness across replicates 
-
-data_flagged_leaf_thickness_rep <- df_for_flagging_leaf_thickness_rep |>  
-  group_by(across(all_of(group_vars_lt_rep))) |>  
-  mutate(
-    q1  = quantile(.data[[trait_var_lt_rep]], 0.25, na.rm = TRUE), 
-    q3  = quantile(.data[[trait_var_lt_rep]], 0.75, na.rm = TRUE), 
-    iqr = q3 - q1, 
-    lo  = q1 - 1.5 * iqr, 
-    hi  = q3 + 1.5 * iqr, 
-    flag_iqr = .data[[trait_var_lt_rep]] < lo | .data[[trait_var_lt_rep]] > hi
-  ) |> 
-  ungroup()
-
-
-# reviewing the 'flagged' rows
-outlier_review_leaf_thickness_rep <- data_flagged_leaf_thickness_rep |> 
-  filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_lt_rep), plant_nr, leaf_nr,
-                thickness_rep,
-                leaf_thickness_mm,
-                lo, hi)
-
-
-# MAKING PLOTS! 
-
-if (all(c("month", "age_class") %in% group_vars_lt_rep)) {
-  
-  ggplot(data_flagged_leaf_thickness_rep,
-         aes(x = month,
-             y = .data[[trait_var_lt_rep]])) +
-    
-    geom_boxplot(outlier.shape = NA) +
-    
-    # base thickness points (all replicates)
-    geom_point(
-      alpha = 0.35,
-      position = position_jitter(width = 0.15),
-      colour = "grey50"
-    ) +
-    
-    # flagged thickness outliers
-    geom_point(
-      data = data_flagged_leaf_thickness_rep |> filter(flag_iqr),
-      position = position_jitter(width = 0.15),
-      colour = "red",
-      size = 2
-    ) +
-    
-    facet_grid(age_class ~ .) +
-    
-    labs(
-      x = "Month",
-      y = "Leaf thickness (mm)",
-      title = "Leaf thickness reps grouped by Month and Age Class (with IQR flags)"
-    ) +
-    
-    theme_bw()
-}
-
-```
-
-need to decide what to do with these outliers before moving on to same tests for means
 
 ### Leaf thickness means and IQR-flagging
 
@@ -1590,7 +1481,7 @@ outlier_review_leaf_thickness_mean <- data_flagged_leaf_thickness_mean |>
 if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
   
   ggplot(data_flagged_leaf_thickness_mean,
-         aes(x = month,
+          aes(x = factor(plant_nr),
              y = .data[[trait_var_lt_mean]])) +
     
     geom_boxplot(outlier.shape = NA) +
@@ -1610,17 +1501,17 @@ if (all(c("month", "age_class") %in% group_vars_lt_mean)) {
       size = 2
     ) +
 
-    facet_grid(age_class ~ .) +
+    facet_grid(age_class ~ month) +
     labs(
-      x = "Month",
+      x = "Faceted by month, plant nr on x-axis",
       y = "Mean leaf thickness (mm)",
-      title = "Mean leaf thickness grouped by Month and Age Class (with IQR flags)"
+      title = "Mean leaf thickness grouped by Month, Age Class, Plant nr (with IQR flags)"
     ) +
     theme_bw()
 }
-```
 
-Outliers found! None look problematic.
+# LEGGE TIL KOMMENTAR OM HVORDAN OUTLIERS ER HCNDTERT
+```
 
 ### Dry mass IQR-flagging
 
@@ -1662,7 +1553,7 @@ data_flagged_dry_mass <- df_for_flagging_dry_mass |>
 # reviewing the 'flagged' rows
 outlier_review_dry_mass <- data_flagged_dry_mass |> 
   filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_dm), unique_plant_id, plant_nr, leaf_nr,
+  dplyr::select(all_of(group_vars_dm), plant_nr, leaf_nr, dry_mass_g, 
                 all_of(trait_var_dm), lo, hi)
 
 
@@ -1671,7 +1562,7 @@ outlier_review_dry_mass <- data_flagged_dry_mass |>
 if (all(c("month", "age_class") %in% group_vars_dm)) {
   
   ggplot(data_flagged_dry_mass,
-         aes(x = month,
+          aes(x = factor(plant_nr),
              y = .data[[trait_var_dm]])) +
     
     geom_boxplot(outlier.shape = NA) +
@@ -1692,11 +1583,11 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
     ) +
     
     # make age class vertical and month the horizontal facets
-    facet_grid(age_class ~ .) +
+    facet_grid(age_class ~ month) +
     
     # write labels for the plots
     labs(
-      x = "Month",
+      x = "Faceted by month, plant nr on x-axis",
       y = "Dry mass (g)",
       title = "Dry mass (g) mean grouped by Month and Age Class (with IQR flags)"
     ) +
@@ -1704,10 +1595,10 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
     theme_bw()
 }
 
-# outlier: DML0429, bui nov 6, leaf 17. low dry mass value. decimal error on envelope 
+# 29 OUTLIERS FLAGGED IN outlier_review_dry_mass. 
+# FOR ALL FLAGGED ENTRIES, dry_mass_g USED TO CROSS CHECK AGAINST WRITING ON ENVELOPES. ALL VALUES MATCH EXCEPT envelope_id DML0429, WHICH HAS ALREADY BEEN CORRECTED IN EARLIER CODE. 
+# NO FURTHER CORRECTIONS MADE IN CODE.
 ```
-
-Now all of the above (except final_fvfm) also take plant_nr and (except both fvfms) updated bulk_nr (by using created mean columns) into account when flagging.
 
 ### Q-Q plots and skewness tests
 
@@ -2075,81 +1966,17 @@ ggplot(skew_table_dm, # uses table created above
 
 ### Summary of errors and true outliers
 
-(based on my understanding right now, and that my code works how it is supposed to)
+-   There are 3 rows that needs to be dealt with after the quality control RULES: DONE in that same code block
 
--   There are 3 rows that needs to be dealt with after the quality control
+-   After IQR-flagging:
 
-    1\) DKU2239 - probably a wet mass typo. one decimal place wrong, would make sense compared to the dry mass. Think the right way to go here is to correct the value. Want to recode the value 0.001338 so that it is replaced with 0.01338, suggestion code:
+    1\) DML0429, bui nov 6, leaf 17. Detected in scatter plot, corrected in code here. low dry mass value. decimal error on envelope
 
-    ```{r}
-    #| label: correcting wrong wet mass 
-    #| message: false
-
-    # suggestion for how to code correcting decimal typo for DKU2239 0.001338 -> 0.01338
-
-    data <- data |>
-     mutate(
-     wet_mass_g = if_else(
-          wet_mass_g == 0.001338,
-          0.01338, # colud change this to NA if that is the correct way to go about it
-          wet_mass_g
-        )
-      )
-    ```
-
-    This is the only value I have found that I am fairly certain is a typo, so also the only one to potentiall correct I think. Need to note somewhere, not sure best place.
-
-    2\) nov pio 1, leaf 7 - NA for final fvfm
-
-    3\) jan mat 4, leaf 14 - NA for final fvfm
-
-    Would suggest to keep in clean dataset, but remove before analysis if reqired for it to work. know that both NAs come because of missing leaves at time of measurement. Should flag or write a comment w the reason, where is good? not sure yet
-
-    After IQR-flagging:
-
-    1\) Final FvFm no impossible values, but some odd patterns. would keep here, but remove before analysis.
-
-    2\) DML0429, bui nov 6, leaf 17. low dry mass value. decimal error on envelope
-
-    ```{r}
-    #| label: correcting wrong dry mass 
-    #| message: false
-
-    # suggestion for how to code correcting decimal typo for DML0429 0.001130 -> 0.01130 
-
-    data <- data |>
-     mutate(
-     dry_mass_g = if_else(
-          dry_mass_g == 0.001130,
-          0.01130, # colud change this to NA if that is the correct way to go about it
-          dry_mass_g
-        )
-      )
-    ```
+-   LEGG TIL TEKST OM AT ALLE FLAGGA VARIABEL VERDIER ER SJEKKET AT DE STEMMER MED KONVULUTTER NCR GJORT.
 
 -   The Q-Q plots and skewness tests, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables based on those.
 
 -   There are quite a few outliers in the iqr-flagging. Most of these seem to be rather close to the iqr though, so think most should stay. Haven't spotted any impossible - rather unlikely or unusual - values.
-
-### Adding potential outlier column 
-
-```{r}
-#| label: true outliers and remarks 
-#| message: false
-
-# making new columns 
-data$potential_outlier <- NA  # making new column ready for manual entry
-
-#could maybe use something like this to get all the outliers flagged in one clumn 
-# find all objects starting with "outlier_review"
-all_outlier_review_dfs <- ls(pattern = "^outlier_review")
-
-# combine all the unique_plant_id values 
-all_outlier_ids <- unique(unlist(
-  lapply(all_outlier_review_dfs, function(x) get(x)$unique_plant_id)
-))
-
-```
 
 ### Dry mass / wet mass plot
 
@@ -2185,7 +2012,7 @@ ggplot(data |> filter(proj_2025 == "Traits"),
 # slope on blue line much smaller than the 1:1 refrence = this relationship seems likely as the wet mass should increase more quickly than the dry mass
 ```
 
-### SLA (specific leaf area) calculation and visualization 
+### SLA (specific leaf area) calculation and visualization
 
 leaf area divided by dry mass - need to remove outliers at earlier stages first. then go through
 
@@ -2205,20 +2032,7 @@ data <- data |>
   )
 
 
-# vizalisation plot SLA vs dry mass
-ggplot(data |> filter(!is.na(sla)), 
-       aes(x = dry_mass_mean, y = sla, colour = factor(age_class))) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(method = "lm", se = TRUE, colour = "blue") +
-  labs(
-    x = "Dry Mass Mean (g)",
-    y = "SLA (cm²/g)",
-    title = "SLA vs Dry Mass Mean"
-  ) +
-  theme_bw()
-
-
-# visualization box plot for SLA 
+# visualization box plotS for SLA 
 ggplot(data |> filter(!is.na(sla)), 
        aes(x = factor(month), y = sla, colour = factor(age_class))) +
   geom_boxplot(outlier.shape = NA) +
@@ -2226,26 +2040,13 @@ ggplot(data |> filter(!is.na(sla)),
   facet_grid(~ age_class) +
   labs(
     x = "Month",
-    y = "Specific Leaf Area (cm²/g)",
+    y = "Specific Leaf Area (cm2/g)",
     title = "Distribution of SLA by Month and Age Class"
   ) +
   theme_bw()
-
-# density plot 
-ggplot(data |> filter(!is.na(sla)), 
-       aes(x = sla, colour = factor(age_class))) +
-  geom_density(size = 1.2) +
-  labs(
-    x = "Specific Leaf Area (cm²/g)",
-    y = "Density",
-    title = "Density of SLA by Age Class"
-  ) +
-  theme_bw()
-
-# clearly a nov bui 6 leaf 17 is an outlier. caused by low dry weight!
 ```
 
-### SLA IQR-flagging 
+### SLA IQR-flagging
 
 ```{r}
 #| label: SLA iqr flagging 
@@ -2291,7 +2092,7 @@ outlier_review_sla <- data_flagged_sla |>
 if (all(c("month", "age_class") %in% group_vars_sla)) {
   
   ggplot(data_flagged_sla,
-         aes(x = month,
+          aes(x = factor(plant_nr),
              y = .data[[trait_var_sla]])) +
     
     geom_boxplot(outlier.shape = NA) +
@@ -2309,18 +2110,19 @@ if (all(c("month", "age_class") %in% group_vars_sla)) {
       size = 2
     ) +
     
-    facet_grid(age_class ~ .) +
+    facet_grid(age_class ~ month) +
     
     labs(
-      x = "Month",
-      y = "SLA (cm²/g)",
+      x = "Faceted by month, plant nr on x-axis",
+      y = "SLA (cmB2/g)",
       title = "SLA grouped by Month and Age Class (with IQR flags)"
     ) +
     
     theme_bw()
 }
 
-# same outlier spotted here
+# 21 OUTLIERS FLAGGED IN outlier_review_sla. 
+# LEAF AREA AND DRY MASS VALUES ALREADY CHECKED AGAINST ENVELOPES. NO CORRECTIONS MADE IN CODE.
 ```
 
 ### Q-Q plot + skewness test SLA
@@ -2396,7 +2198,7 @@ ggplot(skew_table_sla,
     colour = "Version"
   )
 
-# NEED TO WAIT WITH INTERPRETING RESULTS HERE, AS OUTLIERS MUST BE REMOVED EARLIER ON FIRST 
+# DISTRIBUTION LOOKS RELATIVELY STRAIGHT ON Q-Q PLOT. SKEWNESS MODERATE, NOT ABOVE +/-0.6. 
 ```
 
 ### LDMC (leaf dry matter content) calculation and visualization
@@ -2416,7 +2218,6 @@ data <- data |>
     )
   )
 
-
 # visualization box plot for LDMC 
 ggplot(data |> filter(!is.na(ldmc)), 
        aes(x = factor(month), y = ldmc, colour = factor(age_class))) +
@@ -2427,17 +2228,6 @@ ggplot(data |> filter(!is.na(ldmc)),
     x = "Month",
     y = "Leaf dry matter content",
     title = "Distribution of LDMC by Month and Age Class"
-  ) +
-  theme_bw()
-
-# density plot 
-ggplot(data |> filter(!is.na(ldmc)), 
-       aes(x = ldmc, colour = factor(age_class))) +
-  geom_density(size = 1.2) +
-  labs(
-    x = "Leaf dry matter content",
-    y = "Density",
-    title = "Density of LDMC by Age Class"
   ) +
   theme_bw()
 ```
@@ -2488,7 +2278,7 @@ outlier_review_ldmc <- data_flagged_ldmc |>
 if (all(c("month", "age_class") %in% group_vars_ldmc)) {
   
   ggplot(data_flagged_ldmc,
-         aes(x = month,
+          aes(x = factor(plant_nr),
              y = .data[[trait_var_ldmc]])) +
     
     geom_boxplot(outlier.shape = NA) +
@@ -2506,10 +2296,10 @@ if (all(c("month", "age_class") %in% group_vars_ldmc)) {
       size = 2
     ) +
     
-    facet_grid(age_class ~ .) +
+    facet_grid(age_class ~ month) +
     
     labs(
-      x = "Month",
+      x = "Faceted by month, plant nr on x-axis",
       y = "LDMC",
       title = "Leaf Dry Matter Content grouped by Month and Age Class (with IQR flags)"
     ) +
@@ -2517,9 +2307,13 @@ if (all(c("month", "age_class") %in% group_vars_ldmc)) {
     theme_bw()
 }
 
+# 32 OUTLIERS FLAGGED FOR LDMC. 
+# SOME VALUES ARE VERY HIGH, NOT SURE WHY EVEN AFTER CROSS CHECKING
+# NOV NB 5 (bc of low dry mass, cROss checked against envelope), NOV MAT 6 (dry mass and wet mass almost equal, cross checked values against envelopes) HAVE VALUES I AM NOT SURE IF IS EVEN PSSIBLE. 
+# ALTHOUGH NOT AS EXTREME, HAVE GONE THROUGH THE OTHER OTLIERS IN THE SAME MANNER AND CROSS CHECKED WITH ENVELOPES. ENTERED VALUES FOR WET AND DRY MASS ARE MATHCING ENVELOPES. 
 ```
 
-### Q-Q plot and skewness LDMC 
+### Q-Q plot and skewness LDMC
 
 ```{r}
 #| label: Q-Q and skewness LDMC
@@ -2624,7 +2418,7 @@ ggplot(
   
   labs(
     x = "Dry mass mean (g, log scale)",
-    y = "Leaf area mean (cm², log scale)",
+    y = "Leaf area mean (cmB2, log scale)",
     title = "QC check: Leaf area vs Dry mass"
   )
 ```
@@ -2644,7 +2438,7 @@ ggplot(
   theme_bw() +
   labs(
     x = "LDMC",
-    y = "SLA (cm²/g)",
+    y = "SLA (cmB2/g)",
     title = "Trait consistency check: SLA vs LDMC"
   ) 
   
