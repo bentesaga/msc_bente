@@ -53,10 +53,83 @@ raw_data <- read_excel(
 clean_names_data <- raw_data |> 
   clean_names() |> 
   rename(site_name = site_id) |> 
+  rename(envelopeID = envelope_id) |> 
   
   slice(-1)
  
 view(clean_names_data)
+
+```
+
+### Add columns to match LygraFire DURIN standards
+
+```{r}
+#| label: add columns 
+#| message: false
+
+# make empty columns for burn years
+clean_names_data$original_burn_year <- as.numeric(NA)
+clean_names_data$recent_burn_year   <- as.numeric(NA)
+
+# Move original_burn_year and recent_burn_year to the right of "month"
+clean_names_data <- clean_names_data[, append(
+  1:ncol(clean_names_data),
+  match(c("original_burn_year", "recent_burn_year"), names(clean_names_data)),
+  after = match("month", names(clean_names_data))
+)]
+
+# Fill in new columns with relevant burn years
+# Original burn: ? xxxx for now
+# Recent burn: ? xxxx for now 
+
+# Fill in burn years based on age_class
+
+clean_names_data$original_burn_year <- ifelse(
+  clean_names_data$age_class == "Newly Burned", xxxx,
+  ifelse(clean_names_data$age_class == "Pioneer", xxxx,
+  ifelse(clean_names_data$age_class == "Building", xxxx,
+  ifelse(clean_names_data$age_class == "Mature", 1996, NA)))
+)
+
+clean_names_data$recent_burn_year <- ifelse(
+  clean_names_data$age_class == "Newly Burned", 2025,
+  ifelse(clean_names_data$age_class == "Pioneer", 2026-1,
+  ifelse(clean_names_data$age_class == "Building", 2026-1,
+  ifelse(clean_names_data$age_class == "Mature", xxxx, NA)))
+)
+
+
+
+# make new columns for coordinates 
+clean_names_data$latitude_N         <- as.numeric(NA)
+clean_names_data$longitude_E        <- as.numeric(NA)
+
+# Move latitude_N and longitude_E to the left of "site_name"
+clean_names_data <- clean_names_data[, append(
+  1:ncol(clean_names_data),
+  match(c("latitude_N", "longitude_E"), names(clean_names_data)),
+  after = match("site_name", names(clean_names_data)) - 1
+)]
+
+# Fill in coordinates
+# Newly Burned sampeled from: 60.696761, 5.096236
+# Pioneer sampeled from: 60.701704, 5.094445
+# Building sampeled from:  60.700705, 5.093018
+# Mature sampeled from: 60.696599, 5.097197
+
+clean_names_data$latitude_N <- ifelse(
+  clean_names_data$age_class == "Newly Burned", 60.696761,
+  ifelse(clean_names_data$age_class == "Pioneer", 60.701704,
+  ifelse(clean_names_data$age_class == "Building", 60.700705,
+  ifelse(clean_names_data$age_class == "Mature", 60.696599, NA)))
+)
+
+clean_names_data$longitude_E <- ifelse(
+  clean_names_data$age_class == "Newly Burned", 5.096236,
+  ifelse(clean_names_data$age_class == "Pioneer", 5.094445,
+  ifelse(clean_names_data$age_class == "Building", 5.093018,
+  ifelse(clean_names_data$age_class == "Mature", 5.097197, NA)))
+)
 
 ```
 
@@ -257,7 +330,7 @@ stopifnot(test_trait_leaf_range())
 test_envelope_hot <- function() {
   n <- data |>
     filter(proj_2025 == "TT Hot" &
-           !is.na(envelope_id)) |>
+           !is.na(envelopeID)) |>
     nrow()
   n == 0
 }
@@ -265,7 +338,7 @@ test_envelope_hot <- function() {
 test_envelope_cold <- function() {
   n <- data |>
     filter(proj_2025 == "TT Cold" &
-           !is.na(envelope_id)) |>
+           !is.na(envelopeID)) |>
     nrow()
   n == 0
 }
@@ -273,7 +346,7 @@ test_envelope_cold <- function() {
 test_envelope_traits <- function() {
   n <- data |>
     filter(proj_2025 == "Traits" &
-           is.na(envelope_id)) |>
+           is.na(envelopeID)) |>
     nrow()
   n == 0
 }
@@ -441,7 +514,7 @@ invalid_wet_mass_decimal <- data |>
 data <- data |>
  mutate(
  wet_mass_g = if_else(
- envelope_id == "DKU2239" & wet_mass_g == 0.001338,
+ envelopeID == "DKU2239" & wet_mass_g == 0.001338,
       0.01338,
       wet_mass_g
     )
@@ -531,7 +604,7 @@ stopifnot(test_mass())
 # updated so all the problem rows show up as objects 
 # the stopifnot() on the problems are in comments, so that the code runs on 
 
-#SUMMARY OF QUALITY CONTROL CHECKS: There are 3 problematic rows; two with NAs for final fv/fm (nov pio 1, leaf 7 and jan mat 4, leaf 14 ). Looking into notes, has confirmed that both are due to all leaves missing leaves at time of measurement. Remark added. One problematic row with a wet_mass decimal error, for envelope_id DKU2239, corrected with code in script above. 
+#SUMMARY OF QUALITY CONTROL CHECKS: There are 3 problematic rows; two with NAs for final fv/fm (nov pio 1, leaf 7 and jan mat 4, leaf 14 ). Looking into notes, has confirmed that both are due to all leaves missing leaves at time of measurement. Remark added. One problematic row with a wet_mass decimal error, for envelopeID DKU2239, corrected with code in script above. 
 # all 3 problem rows resolved
 ```
 
@@ -585,11 +658,11 @@ leaf_area_clean <- leaf_area_raw |>
   clean_names() |>
    select(-x1) |> # removing unessecary column
   rename(leaf_area_sum = leaf_area) |> # renaming as this colum still contains the sum of all paticles
-  rename(envelope_id = id) |> 
+  rename(envelopeID = id) |> 
   # creating priority for preferred files
   mutate(priority = if_else(str_detect(source_file, "images"), 1, 2)) |> 
-  arrange(envelope_id, priority) |>  # ordering so preferred rows come first
-  distinct(envelope_id, .keep_all = TRUE) |>  # keeping first row per id
+  arrange(envelopeID, priority) |>  # ordering so preferred rows come first
+  distinct(envelopeID, .keep_all = TRUE) |>  # keeping first row per id
   select(-priority) # removing helper column
 
 view(leaf_area_clean) # checking that dataframe looks good 
@@ -601,17 +674,17 @@ view(leaf_area_clean) # checking that dataframe looks good
 #| label: merging data frames
 #| message: false
 
-# mergning dataframes so that leaf scan data left joins by envelope_id
+# mergning dataframes so that leaf scan data left joins by envelopeID
 
 data <- data |>
   dplyr::left_join(
     leaf_area_clean |> #choosing the leaf_area_clean to join
       dplyr::select( #selecting only the columns I want to have join the main data frame, changing the name of the n column to be more intuitive
-        envelope_id,
+        envelopeID,
         bulk_nr_leaf_area = n,
         leaf_area_sum
       ),
-    by = "envelope_id"
+    by = "envelopeID"
   )
 
 view(data)
@@ -641,11 +714,12 @@ data <- data |>
       TRUE ~ remark
     ),
     
-    # adding and overwriting remarks for specific envelope_ids so that it matches writing on envelopes
+    # adding and overwriting remarks for specific envelopeIDs so that it matches writing on envelopes
     remark = case_when(
-      envelope_id == "DMQ0002" ~ "one leaf has a bud",
-      envelope_id == "AOW0486" ~ "only 3 leaves at scanning",
-      envelope_id == "ASO5853" ~ "only 3 leaves at wet mass",
+      envelopeID == "DMQ0002" ~ "one leaf has a bud",
+      envelopeID == "AOW0486" ~ "only 3 leaves at scanning",
+      envelopeID == "ASO5853" ~ "only 3 leaves at wet mass",
+      envelopeID == "DKD1356" ~ "only 2 leaves at wet mass",
       TRUE ~ remark
     ),
   )
@@ -659,12 +733,12 @@ unique(data$remark) # checking updates
 #| label: changing initial bulk_nr_leaves
 #| message: false
 
- # if envelope_id is one of the following and bulk_nr is 3, then change it to 4
+ # if envelopeID is one of the following and bulk_nr is 3, then change it to 4
  # due to misunderstanding on how to enter data from envelopes. All started with 4,    before some were lost at different stages. 
 data <- data |> 
   mutate(
     bulk_nr_leaves = if_else(
-      envelope_id %in% c("ATE6572", "ASO5853", "ARH6082", "AOL3307") &
+      envelopeID %in% c("ATE6572", "ASO5853", "ARH6082", "AOL3307") &
       bulk_nr_leaves == 3,
       4,
       bulk_nr_leaves
@@ -699,6 +773,9 @@ data$bulk_nr_wet_mass[data$remark == "only 3 leaves at wet mass"] <- 3
 
 data$remark_bulk_nr_wet_mass[data$remark == "only 3 leaves at wet mass"] <- "corrected to 3 leaves at wet mass"
 
+data$bulk_nr_wet_mass[data$remark == "only 2 leaves at wet mass"] <- 2
+
+data$remark_bulk_nr_wet_mass[data$remark == "only 2 leaves at wet mass"] <- "corrected to 2 leaves at wet mass"
 # calculating mean wet mass per leaf, based on updated bulk_nr_wet_mass values
 # not sure if it actually necessary to make a column explicitly for this 
 data$wet_mass_mean <- with(data, ifelse(
@@ -798,11 +875,11 @@ data$leaf_thickness_mean[is.nan(data$leaf_thickness_mean)] <- NA # removing rows
 
 # first need to account for decimal error found during qc
 # code correcting decimal error on envelope for DML0429 0.001130 -> 0.01130
-# if envelope_id and dry mass matches conditions, replace with
+# if envelopeID and dry mass matches conditions, replace with
 data <- data |>
  mutate(
  dry_mass_g = if_else(
-      envelope_id == "DML0429" & dry_mass_g == 0.001130,
+      envelopeID == "DML0429" & dry_mass_g == 0.001130,
       0.01130,  
       dry_mass_g
     )
@@ -980,7 +1057,10 @@ ggplot(data_long_thickness,
     title = "Leaf thickness replicates per leaf"
   )
 
-# GOING THROUGH VALUES AND CHECKING THAT VALUES THAT LAY RATHER FAR FROM THE OTHER REPLICATE MEASUREMENTS FOR EACH BULK LEAF MATCH WHAT SAYS ON ENVELOPE. 
+# ALL PLOTENTIAL OUTLIERS CONSIDERED USING THIS PLOT.
+# VALUES FAR FROM OTHER REPLICATES OF SAME LEAF CHACKED AGAINST ENVELOPES. 
+# NOTE: NOVEMBER PIONEER PLANT 1, ALL THICKNESS MEASUREMENTS CONSIDERABLY HIGHER THAN THE OTHER PLANTS. LIKELY BECAUSE OF HUMAN MISTAKE, MEASUREMANT INCONSISTIENCY. CONSIDER REMOVING BEFORE USING DATA. 
+
 ```
 
 ```{r}
@@ -1006,7 +1086,7 @@ ggplot(data_long_thickness, #plotting drom long format
   labs(
     x = "Plant number",
     y = "Leaf thickness (mm)",
-    title = "Leaf thickness replicates by plant, age class and month"
+    title = "Leaf thickness by plant, age class and month"
   )
 ```
 
@@ -1030,7 +1110,7 @@ ggplot(data |> filter(proj_2025 == "Traits"),
   )
 
 # outlier found and corrected: 
-# envelope_id DML0429, bui nov 6, leaf 17. Low dry mass value, most likely due to writing error on envelope. Value on envelope is 0.00113, after cross checking, should probably be 0.01130
+# envelopeID DML0429, bui nov 6, leaf 17. Low dry mass value, most likely due to writing error on envelope. Value on envelope is 0.00113, after cross checking, should probably be 0.01130
 #moved up
 ```
 
@@ -1261,6 +1341,7 @@ if (all(c("month", "age_class") %in% group_vars_ini)) {
 
 # 28 OUTLIERS FLAGGED IN outlier_review_fvfm_initial. 
 # ALL CROSS CHECKED AGAINST FIELD DATASHEETS. ALL VALUES MATCH. NO CORRECTIONS MADE IN CODE. 
+# WOULD CONSIDER REMOVING JANUARY PIONEER PLANT 3 BEFOREUSING DATA, DUE TO UNUSUALY LOW INITIAL FVFM VALUE
 ```
 
 ### Wet mass weight IQR-flagging
@@ -1349,8 +1430,15 @@ if (all(c("month", "age_class") %in% group_vars_wm)) {
     theme_bw()
 }
 
-# 32 OUTLIERS FLAGGED IN outlier_review_wet_mass. 
+# 31 OUTLIERS FLAGGED IN outlier_review_wet_mass. 
 # ALL FLAGGED ENTRIES, wet_mass_g USED TO CROSS CHECK AGAINST WRITING ON ENVELOPES. ALL VALUES MATCH. NO CORRECTIONS MADE IN CODE.
+
+# NOTE: JANUARY PIONEER 4, ENVELOPE APY5282. HIGH RECORDED WET MASS VALUE RECORDED COMPARED TO OTHER ENVELOPES FROM SAME INDIVIDUAL PLANT. BULK_NR RIGHT. WOULD CONSIDER REMOVING BEFORE USING DATA.
+
+# NOTE: JAUARY BUILDING 6, ENVELOPE ASG2881 HIGH RECORDED WET MASS VALUE RECORDED COMPARED TO OTHER ENVELOPES FROM SAME INDIVIDUAL PLANT. BULK_NR RIGHT. WOULD CONSIDER REMOVING BEFORE USING DATA.
+
+# NOTE: JANUARY MATURE 3, ENVELOPE DKW6763 HIGH RECORDED WET MASS VALUE RECORDED (almost double) COMPARED TO OTHER ENVELOPES FROM SAME INDIVIDUAL PLANT. BULK_NR RIGHT. WOULD CONSIDER REMOVING BEFORE USING DATA. 
+ 
 ```
 
 ### Leaf area IQR-flagging
@@ -1389,7 +1477,7 @@ data_flagged_leaf_area <- df_for_flagging_leaf_area |>
 # reviewing the flagged rows
 outlier_review_leaf_area <- data_flagged_leaf_area |> 
   filter(flag_iqr) |> 
-  dplyr::select(all_of(group_vars_la), plant_nr, leaf_nr, leaf_area_sum, all_of(trait_var_la), lo, hi, envelope_id)
+  dplyr::select(all_of(group_vars_la), plant_nr, leaf_nr, leaf_area_sum, all_of(trait_var_la), lo, hi, envelopeID)
 
 
 # MAKING PLOTS! 
@@ -1596,7 +1684,7 @@ if (all(c("month", "age_class") %in% group_vars_dm)) {
 }
 
 # 29 OUTLIERS FLAGGED IN outlier_review_dry_mass. 
-# FOR ALL FLAGGED ENTRIES, dry_mass_g USED TO CROSS CHECK AGAINST WRITING ON ENVELOPES. ALL VALUES MATCH EXCEPT envelope_id DML0429, WHICH HAS ALREADY BEEN CORRECTED IN EARLIER CODE. 
+# FOR ALL FLAGGED ENTRIES, dry_mass_g USED TO CROSS CHECK AGAINST WRITING ON ENVELOPES. ALL VALUES MATCH EXCEPT envelopeID DML0429, WHICH HAS ALREADY BEEN CORRECTED IN EARLIER CODE. 
 # NO FURTHER CORRECTIONS MADE IN CODE.
 ```
 
@@ -1994,10 +2082,12 @@ ggplot(data |> filter(proj_2025 == "Traits"),
   # 1:1 reference line
   geom_abline(slope = 1, intercept = 0,
               linetype = "dashed", colour = "grey50") +
+    geom_abline(slope = .5, intercept = 0,
+              linetype = "dashed", colour = "grey50")+
   
   # fitted regression line
   geom_smooth(method = "lm", se = TRUE, colour = "blue") +
-  
+  facet_wrap(vars(month)) +
   # optional: label
   labs(
     x = "Wet mass per leaf (g)",
@@ -2310,7 +2400,8 @@ if (all(c("month", "age_class") %in% group_vars_ldmc)) {
 # 32 OUTLIERS FLAGGED FOR LDMC. 
 # SOME VALUES ARE VERY HIGH, NOT SURE WHY EVEN AFTER CROSS CHECKING
 # NOV NB 5 (bc of low dry mass, cROss checked against envelope), NOV MAT 6 (dry mass and wet mass almost equal, cross checked values against envelopes) HAVE VALUES I AM NOT SURE IF IS EVEN PSSIBLE. 
-# ALTHOUGH NOT AS EXTREME, HAVE GONE THROUGH THE OTHER OTLIERS IN THE SAME MANNER AND CROSS CHECKED WITH ENVELOPES. ENTERED VALUES FOR WET AND DRY MASS ARE MATHCING ENVELOPES. 
+# ALTHOUGH NOT AS EXTREME, HAVE GONE THROUGH THE OTHER OTLIERS IN THE SAME MANNER AND CROSS CHECKED WITH ENVELOPES. ENTERED VALUES FOR WET AND DRY MASS ARE MATHCING ENVELOPES.
+#richard says to remove from clean data set. remove in code here: 
 ```
 
 ### Q-Q plot and skewness LDMC
@@ -2397,9 +2488,9 @@ ggplot(skew_table_ldmc,
 ggplot(
   data |> filter(
       proj_2025 == "Traits", 
-      !envelope_id %in% c("DML0429", "DKU2239")  # exclude these two as I already know that they are problematic. 
+      !envelopeID %in% c("DML0429", "DKU2239")  # exclude these two as I already know that they are problematic. 
     ),
-  aes(x = dry_mass_mean, y = leaf_area_mean)
+  aes(x = wet_mass_mean, y = leaf_area_mean)
 ) +
   
   geom_point(
@@ -2430,7 +2521,7 @@ ggplot(
 
 ggplot(
   data |> 
-    filter(!envelope_id %in% c("DML0429", "DKU2239")),  # exclude problematic points as I already know these are messing with the plot
+    filter(!envelopeID %in% c("DML0429", "DKU2239")),  # exclude problematic points as I already know these are messing with the plot
   aes(x = ldmc, y = sla)
 ) +
   geom_point(aes(colour = age_class), alpha = 0.6) +
