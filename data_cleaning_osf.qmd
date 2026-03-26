@@ -68,48 +68,33 @@ view(clean_names_data)
 #| message: false
 
 # make empty columns for burn years
+
 clean_names_data$original_burn_year <- as.numeric(NA)
 clean_names_data$recent_burn_year   <- as.numeric(NA)
 
-# Move original_burn_year and recent_burn_year to the right of "month"
-clean_names_data <- clean_names_data[, append(
-  1:ncol(clean_names_data),
-  match(c("original_burn_year", "recent_burn_year"), names(clean_names_data)),
-  after = match("month", names(clean_names_data))
-)]
-
 # Fill in new columns with relevant burn years
-# Original burn: ? xxxx for now
-# Recent burn: ? xxxx for now 
+# Original burn: 2000 for now
+# Recent burn: 2000 for now 
 
 # Fill in burn years based on age_class
 
 clean_names_data$original_burn_year <- ifelse(
-  clean_names_data$age_class == "Newly Burned", xxxx,
-  ifelse(clean_names_data$age_class == "Pioneer", xxxx,
-  ifelse(clean_names_data$age_class == "Building", xxxx,
+  clean_names_data$age_class == "Newly Burned", 2000,
+  ifelse(clean_names_data$age_class == "Pioneer", 2000,
+  ifelse(clean_names_data$age_class == "Building", 2000,
   ifelse(clean_names_data$age_class == "Mature", 1996, NA)))
 )
 
 clean_names_data$recent_burn_year <- ifelse(
-  clean_names_data$age_class == "Newly Burned", 2025,
+  clean_names_data$age_class == "Newly Burned", 2025-1,
   ifelse(clean_names_data$age_class == "Pioneer", 2026-1,
   ifelse(clean_names_data$age_class == "Building", 2026-1,
-  ifelse(clean_names_data$age_class == "Mature", xxxx, NA)))
+  ifelse(clean_names_data$age_class == "Mature", 2000-1, NA)))
 )
-
-
 
 # make new columns for coordinates 
 clean_names_data$latitude_N         <- as.numeric(NA)
 clean_names_data$longitude_E        <- as.numeric(NA)
-
-# Move latitude_N and longitude_E to the left of "site_name"
-clean_names_data <- clean_names_data[, append(
-  1:ncol(clean_names_data),
-  match(c("latitude_N", "longitude_E"), names(clean_names_data)),
-  after = match("site_name", names(clean_names_data)) - 1
-)]
 
 # Fill in coordinates
 # Newly Burned sampeled from: 60.696761, 5.096236
@@ -606,6 +591,16 @@ stopifnot(test_mass())
 
 #SUMMARY OF QUALITY CONTROL CHECKS: There are 3 problematic rows; two with NAs for final fv/fm (nov pio 1, leaf 7 and jan mat 4, leaf 14 ). Looking into notes, has confirmed that both are due to all leaves missing leaves at time of measurement. Remark added. One problematic row with a wet_mass decimal error, for envelopeID DKU2239, corrected with code in script above. 
 # all 3 problem rows resolved
+
+# additional wet mass value correction. wet_mass_g entered as 0.019 wile it should be 0.01190, correcting here
+data <- data |>
+ mutate(
+ wet_mass_g = if_else(
+ envelopeID == "DLW1760" & wet_mass_g == 0.019,
+      0.01190,
+      wet_mass_g
+    )
+  )
 ```
 
 ### Height corrections
@@ -805,6 +800,8 @@ data$remark_bulk_nr_leaf_area <- NA # making new remark column, ready for manual
 
 data$bulk_nr_leaf_area[data$remark == "only 3 leaves at wet mass"] <- 3
 
+data$bulk_nr_wet_mass[data$remark == "only 2 leaves at wet mass"] <- 2
+
 # corrections for leaf area based on scanning remarks
 data$bulk_nr_leaf_area[data$remark == "only 3 leaves at scanning"] <- 3
 data$remark_bulk_nr_leaf_area[data$remark == "only 3 leaves at scanning"] <- "corrected to 3 leaves at scanning"
@@ -841,6 +838,8 @@ data$remark_bulk_nr_leaf_thickness <- NA # making new remark column, ready for m
 # corrections based on wet mass remarks 
 
 data$bulk_nr_leaf_thickness[data$remark == "only 3 leaves at wet mass"] <- 3
+
+data$bulk_nr_leaf_thickness[data$remark == "only 2 leaves at wet mass"] <- 2
 
 # corrections based on scanning remarks
 data$bulk_nr_leaf_thickness[data$remark == "only 3 leaves at scanning"] <- 3
@@ -899,6 +898,8 @@ data$remark_bulk_nr_dry_mass <- NA # making new remark column, ready for manual 
 # corrections based on wet mass remarks 
 
 data$bulk_nr_dry_mass[data$remark == "only 3 leaves at wet mass"] <- 3
+
+data$bulk_nr_dry_mass[data$remark == "only 2 leaves at wet mass"] <- 2
 
 # corrections based on scanning remarks
 data$bulk_nr_dry_mass[data$remark == "only 3 leaves at scanning"] <- 3
@@ -2064,43 +2065,7 @@ ggplot(skew_table_dm, # uses table created above
 
 -   The Q-Q plots and skewness tests, shows that the distribution of the data within each month x age_class group is relatively close to a normal distribution. So I don't think there is any need for transformation of variables based on those.
 
--   There are quite a few outliers in the iqr-flagging. Most of these seem to be rather close to the iqr though, so think most should stay. Haven't spotted any impossible - rather unlikely or unusual - values.
-
-### Dry mass / wet mass plot
-
-```{r}
-#| label: dry vs wet mass 
-#| message: false
-
-ggplot(data |> filter(proj_2025 == "Traits"),
-       aes(x = wet_mass_mean, y = dry_mass_mean)) +
-  
-  # scatter points
-  geom_point(aes(colour = factor(plant_nr)),
-             size = 2, alpha = 0.7) +
-  
-  # 1:1 reference line
-  geom_abline(slope = 1, intercept = 0,
-              linetype = "dashed", colour = "grey50") +
-    geom_abline(slope = .5, intercept = 0,
-              linetype = "dashed", colour = "grey50")+
-  
-  # fitted regression line
-  geom_smooth(method = "lm", se = TRUE, colour = "blue") +
-  facet_wrap(vars(month)) +
-  # optional: label
-  labs(
-    x = "Wet mass per leaf (g)",
-    y = "Dry mass per leaf (g)",
-    title = "Dry mass vs wet mass per leaf",
-    subtitle = "Dashed line = 1:1 reference, blue line = fitted linear trend",
-    colour = "plant_nr"
-  ) +
-  
-  theme_bw()
-
-# slope on blue line much smaller than the 1:1 refrence = this relationship seems likely as the wet mass should increase more quickly than the dry mass
-```
+-   There are quite a few outliers in the iqr-flagging. Most of these seem to be rather close to the iqr though, so think most should stay. Haven't spotted any impossible - rather unlikely or unusual - values
 
 ### SLA (specific leaf area) calculation and visualization
 
@@ -2291,6 +2256,48 @@ ggplot(skew_table_sla,
 # DISTRIBUTION LOOKS RELATIVELY STRAIGHT ON Q-Q PLOT. SKEWNESS MODERATE, NOT ABOVE +/-0.6. 
 ```
 
+### Dry mass / wet mass plot
+
+```{r}
+#| label: dry vs wet mass 
+#| message: false
+
+ggplot(data |> filter(proj_2025 == "Traits"),
+       aes(x = wet_mass_mean, y = dry_mass_mean)) +
+  
+  # scatter points
+  geom_point(aes(colour = factor(plant_nr)),
+             size = 2, alpha = 0.7) +
+  
+  # 1:1 reference line
+  geom_abline(slope = 1, intercept = 0,
+              linetype = "dashed", colour = "grey50") +
+    geom_abline(slope = .5, intercept = 0,
+              linetype = "dashed", colour = "grey50")+
+  
+  # fitted regression line
+  geom_smooth(method = "lm", se = TRUE, colour = "blue") +
+  facet_wrap(vars(month)) +
+  # optional: label
+  labs(
+    x = "Wet mass per leaf (g)",
+    y = "Dry mass per leaf (g)",
+    title = "Dry mass vs wet mass per leaf",
+    subtitle = "Dashed line = 1:1 reference, blue line = fitted linear trend",
+    colour = "plant_nr"
+  ) +
+  
+  theme_bw()
+
+# slope on blue line much smaller than the 1:1 refrence = this relationship seems likely as the wet mass should increase more quickly than the dry mass
+# 5 points (4 blue nov, 1 green jan), quite far off the rest needs checking. see LDMC iqr for solutions to the specific ones.
+#DKD1356, nb_nov_5
+#DKG1511, nb_nov_6
+#DLW1760, bui_nov_5
+#DMW4615, mat_nov_6
+#DKW6764, mat_jan_3
+```
+
 ### LDMC (leaf dry matter content) calculation and visualization
 
 ```{r}
@@ -2320,6 +2327,7 @@ ggplot(data |> filter(!is.na(ldmc)),
     title = "Distribution of LDMC by Month and Age Class"
   ) +
   theme_bw()
+
 ```
 
 ### IQR-flagging LDMC
@@ -2359,6 +2367,7 @@ data_flagged_ldmc <- df_for_flagging_ldmc |>
 outlier_review_ldmc <- data_flagged_ldmc |> 
   filter(flag_iqr) |> 
   dplyr::select(all_of(group_vars_ldmc),
+                envelopeID,
                 leaf_nr,
                 ldmc,
                 lo, hi)
@@ -2397,9 +2406,20 @@ if (all(c("month", "age_class") %in% group_vars_ldmc)) {
     theme_bw()
 }
 
+
 # 32 OUTLIERS FLAGGED FOR LDMC. 
-# SOME VALUES ARE VERY HIGH, NOT SURE WHY EVEN AFTER CROSS CHECKING
-# NOV NB 5 (bc of low dry mass, cROss checked against envelope), NOV MAT 6 (dry mass and wet mass almost equal, cross checked values against envelopes) HAVE VALUES I AM NOT SURE IF IS EVEN PSSIBLE. 
+# SOME VALUES ARE VERY HIGH, NOT SURE WHY EVEN AFTER CROSS CHECKING. 
+# 5 envelopes to be re-checked:
+#DKD1356, nb_nov_5:  wet mass entered correctly. dry mass entred correctly. bulk_nr mistake. olnly 2 leaves at wet mass, but dry mass bulk nr column had value 4. corrected in code further up. this solved the issue. no longer outlier. 
+#DKG1511, nb_nov_6. wet mass, dry mass, bulk nr correct. REDRY AND WEIGH. 
+#DLW1760, bui_nov_5: wet mass data entry mistake. does not match envelope. entered as 0.019 while envelope says 0.01190. still outlier. REDRY AND WEIGH.  
+#DMW4615, mat_nov_6.  wet mass, dry mass, bulk nr correct. REDRY AND WEIGH. 
+#DKW6764, mat_jan_3
+
+# checking includes seeing that weight on datasheet and on envelope is the same, that bulk nr is right at both wet and dry mass, reweighing to get new dry mass value in case that is wrong. 
+#
+
+# NOV NB 5 (bc of low dry mass, crss checked against envelope), NOV MAT 6 (dry mass and wet mass almost equal, cross checked values against envelopes) HAVE VALUES I AM NOT SURE IF IS EVEN PSSIBLE. 
 # ALTHOUGH NOT AS EXTREME, HAVE GONE THROUGH THE OTHER OTLIERS IN THE SAME MANNER AND CROSS CHECKED WITH ENVELOPES. ENTERED VALUES FOR WET AND DRY MASS ARE MATHCING ENVELOPES.
 #richard says to remove from clean data set. remove in code here: 
 ```
@@ -2534,3 +2554,5 @@ ggplot(
   ) 
   
 ```
+
+Når data er ferdig cleanet, lagre som en csv.
