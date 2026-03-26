@@ -70,26 +70,16 @@ view(clean_names_data)
 # make empty columns for burn years
 
 clean_names_data$original_burn_year <- as.numeric(NA)
-clean_names_data$recent_burn_year   <- as.numeric(NA)
 
 # Fill in new columns with relevant burn years
-# Original burn: 2000 for now
-# Recent burn: 2000 for now 
+# Original burn from slack treat Sonya: NB 2025, PIO 2010, BUI 2016, MAT 1996. 
 
 # Fill in burn years based on age_class
-
 clean_names_data$original_burn_year <- ifelse(
-  clean_names_data$age_class == "Newly Burned", 2000,
-  ifelse(clean_names_data$age_class == "Pioneer", 2000,
-  ifelse(clean_names_data$age_class == "Building", 2000,
+  clean_names_data$age_class == "Newly Burned", 2025,
+  ifelse(clean_names_data$age_class == "Pioneer", 2010,
+  ifelse(clean_names_data$age_class == "Building", 2016,
   ifelse(clean_names_data$age_class == "Mature", 1996, NA)))
-)
-
-clean_names_data$recent_burn_year <- ifelse(
-  clean_names_data$age_class == "Newly Burned", 2025-1,
-  ifelse(clean_names_data$age_class == "Pioneer", 2026-1,
-  ifelse(clean_names_data$age_class == "Building", 2026-1,
-  ifelse(clean_names_data$age_class == "Mature", 2000-1, NA)))
 )
 
 # make new columns for coordinates 
