@@ -1,0 +1,139 @@
+---
+title: "testing T50 function"
+format: html
+editor: visual
+---
+
+### **LOADING LIBRARY**
+
+```{r}
+#| label: LOADING LIBRARY
+#| message: false
+
+library(tidyverse)
+
+# remember to reinstall if Richard changes package, found on github
+# install.packages("pak")
+# pak::pak("richardjtelford/thermalTolerance") 
+# or
+#remotes::install_github("richardjtelford/thermalTolerance") 
+
+library(thermalTolerance) # this package estimates of 3 different PSII heat tolerances, Tcrit, T50 and T95. takes each individual_nr plant into account and creates one curve for each of them. 
+
+library(tidyr)
+```
+
+### IMPORTING RAW DATA
+
+```{r}
+#| label: DATA IMPORT 
+#| message: false
+# NOTE: when clean data ready use that instead
+# importing my 13-02-2026 copy of google spreadsheet with raw data and choosing the right sheet 
+# NAs are actually imported as NAs, not as characters 
+
+raw_data <- read_excel(
+  "data/13-02-2026_copy_raw_data.xlsx", 
+  sheet = "cv_nov25_jan26", na = c("", "NA")) 
+
+# data preparation 
+
+# making hot subset
+hot_subset <- raw_data |> 
+  filter(proj_2025 == "TT Hot") |> 
+   select(month, ageClass, plant_nr, TempExp, fvfm = `Fv/Fm_Final`)
+   
+view(hot_subset)
+
+# making cold subset (now just to test for november alone)
+cold_subset <- raw_data |> 
+  filter(proj_2025 == "TT Cold", month == "November") |> 
+   select(month, ageClass, plant_nr, TempExp, fvfm = `Fv/Fm_Final`)
+   
+view(cold_subset)
+```
+
+### HEAT TOLERANCE CURVES AND T50
+
+```{r}
+#| label: USING RICHARDS PACKAGE FOR HT
+#| message: false
+
+# when copied in from github, "htdata" is demo data from Perez 2020, change to own dataset before use 
+
+#stich columns together, using unite
+united_columns_h <- unite(
+  hot_subset,
+  col = "new_id", 
+  month, ageClass, #plant_nr,
+  sep = "_",
+  remove = TRUE
+)
+
+# estimating heat response curves using psiiht function
+# psiiht fits a thermal tolerance curve based on FvFm vs. temperature. Treating each replicate as its own independent curve. boots = n control how many (n) bootstrap iterations, ie. how many times a curve is fit based on random values it picks from my data. Returns 95% CI for the curves, NOT T50 directly. Keep low for testing, higher later. 
+
+# have to choose if running the boots on individual plant level
+# or if pooling 8 individuals from (age class x season)
+
+
+htol <- psiiht(temperature = united_columns_h$TempExp, 
+               warming = TRUE,
+               fvfm = united_columns_h$fvfm, 
+               control_temp = 20,
+               id = united_columns_h$new_id,
+               boots = 5 )
+
+summary(htol) # see summary output for T-values (are these means or from individual plant individuals?) 
+autoplot(htol) # plots logistic curves and dashed lines for Tcrit, T50, T95 
+
+
+
+
+# trying to find 95 CI for the T50 itself. does this make sense logically? no, bc output is only one value. should have one for each age class x season at least, or for individual?
+t50_summary <- summary(htol) |> 
+  select(id, T50.mn) |>
+  summarise(
+  mean_t50 = mean(T50.mn, na.rm = TRUE),
+  se       = sd(T50.mn, na.rm = TRUE) / sqrt(n()),
+  ci_low   = mean_t50 - 1.96 * se,
+  ci_high  = mean_t50 + 1.96 * se
+)
+
+t50_summary # not sure if this is how we want to find t50!
+
+```
+
+### COLD TOLERANCE CURVES AND T50
+
+```{r}
+#| label: USING RICHARDS PACKAGE FOR CT 
+#| message: false
+
+# COLD
+# stiching columns together 
+united_columns_c <- unite(
+  cold_subset,
+  col = "new_id", 
+  month, ageClass,
+  sep = "_",
+  remove = TRUE
+)
+
+# estimating cold tolerance curves using psiiht function
+ctol <- psiiht(temperature = united_columns_c$TempExp,
+               warming = FALSE,
+               fvfm = united_columns_c$fvfm,  
+               control_temp = 5, 
+               id = united_columns_c$new_id, 
+               boots = 20) # ERROR when  run for both jan and nov toghether. works if only running nov
+
+summary(ctol)
+autoplot(ctol)
+
+united_columns_c |> ggplot(aes(x = TempExp, y = fvfm)) +
+  geom_point() +
+  facet_wrap(vars(new_id))
+```
+
+WANT TO END UP WITH DATASETS FOR ESTIMATED T50 FOR HOT AND COLD SEPARATELY, THIS TO BE USED IN FURTHER ANALYSIS
